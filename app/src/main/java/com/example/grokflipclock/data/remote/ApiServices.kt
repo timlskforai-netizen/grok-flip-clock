@@ -13,7 +13,7 @@ import retrofit2.http.Query
 import retrofit2.http.Url
 import java.util.concurrent.TimeUnit
 
-// --- Unified AI Chat Models (xAI Grok & Google Gemini OpenAI-Compatible) ---
+// --- xAI Grok Chat Models (OpenAI-Compatible) ---
 data class AiMessage(
     val role: String,
     val content: String
@@ -34,6 +34,34 @@ data class AiChatResponse(
     val choices: List<AiChoice>
 )
 
+// --- Google Gemini / Vertex Express Native Models (支援 AQ. 及 AIza 金鑰) ---
+data class GeminiPart(
+    val text: String
+)
+
+data class GeminiContent(
+    val role: String? = null,
+    val parts: List<GeminiPart>
+)
+
+data class GeminiGenerationConfig(
+    val temperature: Double = 0.7
+)
+
+data class GeminiGenerateRequest(
+    val systemInstruction: GeminiContent? = null,
+    val contents: List<GeminiContent>,
+    val generationConfig: GeminiGenerationConfig? = null
+)
+
+data class GeminiCandidate(
+    val content: GeminiContent?
+)
+
+data class GeminiGenerateResponse(
+    val candidates: List<GeminiCandidate>?
+)
+
 interface AiChatApiService {
     @POST
     suspend fun createChatCompletion(
@@ -41,6 +69,12 @@ interface AiChatApiService {
         @Header("Authorization") authHeader: String,
         @Body request: AiChatRequest
     ): AiChatResponse
+
+    @POST
+    suspend fun generateGeminiContent(
+        @Url url: String,
+        @Body request: GeminiGenerateRequest
+    ): GeminiGenerateResponse
 }
 
 // --- Open-Meteo Weather & Geocoding Models ---
@@ -86,7 +120,6 @@ interface GeocodingApiService {
 
 object NetworkModule {
     const val GROK_CHAT_URL = "https://api.x.ai/v1/chat/completions"
-    const val GEMINI_CHAT_URL = "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions"
 
     private val okHttpClient: OkHttpClient by lazy {
         val logging = HttpLoggingInterceptor().apply {
