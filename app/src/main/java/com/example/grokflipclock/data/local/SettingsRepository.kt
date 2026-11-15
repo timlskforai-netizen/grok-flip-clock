@@ -17,22 +17,41 @@ enum class ClockThemeMode {
     JAPANESE_MINIMAL
 }
 
+enum class AiProvider(val displayName: String, val shortName: String) {
+    GROK("Grok (xAI)", "Grok"),
+    GEMINI("Gemini (Google)", "Gemini")
+}
+
 data class UserSettings(
-    val apiKey: String = "",
-    val modelName: String = "grok-3",
+    val aiProvider: AiProvider = AiProvider.GROK,
+    val grokApiKey: String = "",
+    val geminiApiKey: String = "",
+    val grokModelName: String = "grok-3",
+    val geminiModelName: String = "gemini-2.5-flash",
     val systemPrompt: String = "你係一個貼心、簡潔有幽默感嘅桌面智能助手。請用自然廣東話（可夾雜常用英文）簡短回覆，每次盡量控制喺 80 字以內，方便擺喺桌面時鐘旁邊快速閱讀。",
     val themeMode: ClockThemeMode = ClockThemeMode.OLED_BLACK,
     val is24Hour: Boolean = true,
     val useDeviceLocation: Boolean = true,
     val manualCity: String = "Hong Kong",
-    val ambientNote: String = "歡迎使用 Grok 桌面翻頁鐘！請先喺右上角 ⚙️ 設定輸入 xAI API Key 啟用智能助理。"
-)
+    val ambientNote: String = "歡迎使用桌面翻頁鐘！請先喺右上角 ⚙️ 設定選擇 Grok 或 Gemini 並輸入 API Key。"
+) {
+    val activeApiKey: String
+        get() = if (aiProvider == AiProvider.GROK) grokApiKey else geminiApiKey
+
+    val activeModelName: String
+        get() = if (aiProvider == AiProvider.GROK) grokModelName else geminiModelName
+}
 
 class SettingsRepository(private val context: Context) {
 
     private object Keys {
-        val API_KEY = stringPreferencesKey("api_key")
-        val MODEL_NAME = stringPreferencesKey("model_name")
+        val AI_PROVIDER = stringPreferencesKey("ai_provider")
+        val LEGACY_API_KEY = stringPreferencesKey("api_key")
+        val GROK_API_KEY = stringPreferencesKey("grok_api_key")
+        val GEMINI_API_KEY = stringPreferencesKey("gemini_api_key")
+        val LEGACY_MODEL_NAME = stringPreferencesKey("model_name")
+        val GROK_MODEL_NAME = stringPreferencesKey("grok_model_name")
+        val GEMINI_MODEL_NAME = stringPreferencesKey("gemini_model_name")
         val SYSTEM_PROMPT = stringPreferencesKey("system_prompt")
         val THEME_MODE = stringPreferencesKey("theme_mode")
         val IS_24_HOUR = booleanPreferencesKey("is_24_hour")
@@ -45,9 +64,15 @@ class SettingsRepository(private val context: Context) {
         val themeStr = prefs[Keys.THEME_MODE] ?: ClockThemeMode.OLED_BLACK.name
         val theme = runCatching { ClockThemeMode.valueOf(themeStr) }.getOrDefault(ClockThemeMode.OLED_BLACK)
 
+        val providerStr = prefs[Keys.AI_PROVIDER] ?: AiProvider.GROK.name
+        val provider = runCatching { AiProvider.valueOf(providerStr) }.getOrDefault(AiProvider.GROK)
+
         UserSettings(
-            apiKey = prefs[Keys.API_KEY] ?: "",
-            modelName = prefs[Keys.MODEL_NAME] ?: "grok-3",
+            aiProvider = provider,
+            grokApiKey = prefs[Keys.GROK_API_KEY] ?: prefs[Keys.LEGACY_API_KEY] ?: "",
+            geminiApiKey = prefs[Keys.GEMINI_API_KEY] ?: "",
+            grokModelName = prefs[Keys.GROK_MODEL_NAME] ?: prefs[Keys.LEGACY_MODEL_NAME] ?: "grok-3",
+            geminiModelName = prefs[Keys.GEMINI_MODEL_NAME] ?: "gemini-2.5-flash",
             systemPrompt = prefs[Keys.SYSTEM_PROMPT] ?: UserSettings().systemPrompt,
             themeMode = theme,
             is24Hour = prefs[Keys.IS_24_HOUR] ?: true,
@@ -58,8 +83,11 @@ class SettingsRepository(private val context: Context) {
     }
 
     suspend fun saveSettings(
-        apiKey: String,
-        modelName: String,
+        aiProvider: AiProvider,
+        grokApiKey: String,
+        geminiApiKey: String,
+        grokModelName: String,
+        geminiModelName: String,
         systemPrompt: String,
         themeMode: ClockThemeMode,
         is24Hour: Boolean,
@@ -67,8 +95,11 @@ class SettingsRepository(private val context: Context) {
         manualCity: String
     ) {
         context.dataStore.edit { prefs ->
-            prefs[Keys.API_KEY] = apiKey.trim()
-            prefs[Keys.MODEL_NAME] = modelName.trim().ifEmpty { "grok-3" }
+            prefs[Keys.AI_PROVIDER] = aiProvider.name
+            prefs[Keys.GROK_API_KEY] = grokApiKey.trim()
+            prefs[Keys.GEMINI_API_KEY] = geminiApiKey.trim()
+            prefs[Keys.GROK_MODEL_NAME] = grokModelName.trim().ifEmpty { "grok-3" }
+            prefs[Keys.GEMINI_MODEL_NAME] = geminiModelName.trim().ifEmpty { "gemini-2.5-flash" }
             prefs[Keys.SYSTEM_PROMPT] = systemPrompt.trim()
             prefs[Keys.THEME_MODE] = themeMode.name
             prefs[Keys.IS_24_HOUR] = is24Hour
