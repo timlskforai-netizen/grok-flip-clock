@@ -1,5 +1,12 @@
 package com.example.grokflipclock.ui.components
 
+import android.app.Activity
+import android.content.ActivityNotFoundException
+import android.content.Intent
+import android.speech.RecognizerIntent
+import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -8,7 +15,6 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -24,6 +30,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.Send
 import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material.icons.rounded.DeleteOutline
+import androidx.compose.material.icons.rounded.Mic
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
@@ -41,15 +48,18 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.grokflipclock.data.local.ChatMessageEntity
 import com.example.grokflipclock.ui.theme.LocalClockPalette
+import java.util.Locale
 
 @Composable
 fun GrokPanel(
+    providerLabel: String,
     ambientNote: String,
     isAmbientLoading: Boolean,
     messages: List<ChatMessageEntity>,
@@ -61,8 +71,21 @@ fun GrokPanel(
     modifier: Modifier = Modifier
 ) {
     val palette = LocalClockPalette.current
+    val context = LocalContext.current
     var inputText by remember { mutableStateOf("") }
     val listState = rememberLazyListState()
+
+    val speechLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        if (result.resultCode == Activity.RESULT_OK) {
+            val spokenList = result.data?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)
+            val spokenText = spokenList?.firstOrNull()?.trim()
+            if (!spokenText.isNullOrEmpty() && !isChatLoading) {
+                onSendMessage(spokenText)
+            }
+        }
+    }
 
     LaunchedEffect(messages.size) {
         if (messages.isNotEmpty()) {
@@ -99,7 +122,7 @@ fun GrokPanel(
                             modifier = Modifier.size(15.dp)
                         )
                         Text(
-                            text = "GROK AMBIENT",
+                            text = "${providerLabel.uppercase(Locale.US)} AMBIENT",
                             color = palette.accent,
                             fontSize = 11.sp,
                             fontWeight = FontWeight.Bold,
@@ -176,7 +199,7 @@ fun GrokPanel(
                         contentAlignment = Alignment.Center
                     ) {
                         Text(
-                            text = if (hasApiKey) "隨時喺下方輸入問題同 Grok 傾偈…" else "未設定 API Key，請按時鐘右上角 ⚙️ 輸入。",
+                            text = if (hasApiKey) "隨時打字或按 🎤 語音同 $providerLabel 傾偈…" else "未設定 $providerLabel API Key，請按時鐘右上角 ⚙️ 輸入。",
                             color = palette.secondaryText,
                             fontSize = 12.sp
                         )
@@ -225,7 +248,7 @@ fun GrokPanel(
                             color = palette.accent
                         )
                         Text(
-                            text = "Grok 思考中...",
+                            text = "$providerLabel 思考中...",
                             color = palette.secondaryText,
                             fontSize = 12.sp
                         )
@@ -234,7 +257,7 @@ fun GrokPanel(
             }
         }
 
-        // 3. 底部：即時發問輸入框
+        // 3. 底部：文字 + 語音混合輸入列
         Row(
             modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically,
@@ -245,7 +268,7 @@ fun GrokPanel(
                 onValueChange = { inputText = it },
                 placeholder = {
                     Text(
-                        text = "問 Grok...",
+                        text = "問 $providerLabel...",
                         color = palette.secondaryText,
                         fontSize = 13.sp
                     )
@@ -271,20 +294,46 @@ fun GrokPanel(
                 modifier = Modifier.weight(1f)
             )
 
-            IconButton(
-                onClick = {
-                    if (inputText.isNotBlank() && !isChatLoading) {
-                        onSendMessage(inputText)
-                        inputText = ""
-                    }
-                },
-                enabled = inputText.isNotBlank() && !isChatLoading
-            ) {
-                Icon(
-                    imageVector = Icons.AutoMirrored.Rounded.Send,
-                    contentDescription = "發送",
-                    tint = if (inputText.isNotBlank()) palette.accent else palette.secondaryText
-                )
+            if (inputText.isBlank()) {
+                IconButton(
+                    onClick = {
+                        val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+                            putExtra(
+                                RecognizerIntent.EXTRA_LANGUAGE_MODEL,
+                                RecognizerIntent.LANGUAGE_MODEL_FREE_FORM
+                            )
+                            putExtra(RecognizerIntent.EXTRA_PROMPT, "請講出你想問 $providerLabel 嘅問題...")
+                        }
+                        try {
+                            speechLauncher.launch(intent)
+                        } catch (_: ActivityNotFoundException) {
+                            Toast.makeText(context, "此裝置未安裝系統語音辨識服務", Toast.LENGTH_SHORT).show()
+                        }
+                    },
+                    enabled = !isChatLoading
+                ) {
+                    Icon(
+                        imageVector = Icons.Rounded.Mic,
+                        contentDescription = "語音輸入",
+                        tint = if (!isChatLoading) palette.accent else palette.secondaryText
+                    )
+                }
+            } else {
+                IconButton(
+                    onClick = {
+                        if (!isChatLoading) {
+                            onSendMessage(inputText)
+                            inputText = ""
+                        }
+                    },
+                    enabled = !isChatLoading
+                ) {
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Rounded.Send,
+                        contentDescription = "發送",
+                        tint = palette.accent
+                    )
+                }
             }
         }
     }
