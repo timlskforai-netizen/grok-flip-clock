@@ -10,35 +10,37 @@ import retrofit2.http.GET
 import retrofit2.http.Header
 import retrofit2.http.POST
 import retrofit2.http.Query
+import retrofit2.http.Url
 import java.util.concurrent.TimeUnit
 
-// --- xAI Grok API Models ---
-data class GrokMessage(
+// --- Unified AI Chat Models (xAI Grok & Google Gemini OpenAI-Compatible) ---
+data class AiMessage(
     val role: String,
     val content: String
 )
 
-data class GrokChatRequest(
+data class AiChatRequest(
     val model: String,
-    val messages: List<GrokMessage>,
+    val messages: List<AiMessage>,
     val temperature: Double = 0.7
 )
 
-data class GrokChoice(
+data class AiChoice(
     val index: Int,
-    val message: GrokMessage
+    val message: AiMessage
 )
 
-data class GrokChatResponse(
-    val choices: List<GrokChoice>
+data class AiChatResponse(
+    val choices: List<AiChoice>
 )
 
-interface GrokApiService {
-    @POST("v1/chat/completions")
+interface AiChatApiService {
+    @POST
     suspend fun createChatCompletion(
+        @Url url: String,
         @Header("Authorization") authHeader: String,
-        @Body request: GrokChatRequest
-    ): GrokChatResponse
+        @Body request: AiChatRequest
+    ): AiChatResponse
 }
 
 // --- Open-Meteo Weather & Geocoding Models ---
@@ -83,6 +85,9 @@ interface GeocodingApiService {
 }
 
 object NetworkModule {
+    const val GROK_CHAT_URL = "https://api.x.ai/v1/chat/completions"
+    const val GEMINI_CHAT_URL = "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions"
+
     private val okHttpClient: OkHttpClient by lazy {
         val logging = HttpLoggingInterceptor().apply {
             level = HttpLoggingInterceptor.Level.BASIC
@@ -94,13 +99,13 @@ object NetworkModule {
             .build()
     }
 
-    val grokApi: GrokApiService by lazy {
+    val aiChatApi: AiChatApiService by lazy {
         Retrofit.Builder()
             .baseUrl("https://api.x.ai/")
             .client(okHttpClient)
             .addConverterFactory(GsonConverterFactory.create())
             .build()
-            .create(GrokApiService::class.java)
+            .create(AiChatApiService::class.java)
     }
 
     val weatherApi: WeatherApiService by lazy {
