@@ -43,7 +43,6 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        // 保持螢幕長亮（桌面時鐘防止自動休眠）
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         WindowCompat.setDecorFitsSystemWindows(window, false)
 
@@ -59,7 +58,6 @@ class MainActivity : ComponentActivity() {
             var isFullscreen by remember { mutableStateOf(true) }
             var showSettingsDialog by remember { mutableStateOf(false) }
 
-            // 啟動時請求粗略定位權限以取得本地天氣
             val locationPermissionLauncher = rememberLauncherForActivityResult(
                 contract = ActivityResultContracts.RequestPermission()
             ) { granted ->
@@ -72,7 +70,6 @@ class MainActivity : ComponentActivity() {
                 locationPermissionLauncher.launch(Manifest.permission.ACCESS_COARSE_LOCATION)
             }
 
-            // 沉浸式全螢幕狀態列控制
             LaunchedEffect(isFullscreen) {
                 val controller = WindowInsetsControllerCompat(window, window.decorView)
                 if (isFullscreen) {
@@ -96,7 +93,6 @@ class MainActivity : ComponentActivity() {
                     val isLandscape = maxWidth >= maxHeight
 
                     if (isLandscape) {
-                        // 橫向模式：左 70% 翻頁鐘 + 右 30% Grok
                         Row(modifier = Modifier.fillMaxSize()) {
                             FlipClockPanel(
                                 now = now,
@@ -119,11 +115,12 @@ class MainActivity : ComponentActivity() {
                             )
 
                             GrokPanel(
+                                providerLabel = settings.aiProvider.shortName,
                                 ambientNote = settings.ambientNote,
                                 isAmbientLoading = isAmbientLoading,
                                 messages = messages,
                                 isChatLoading = isChatLoading,
-                                hasApiKey = settings.apiKey.isNotBlank(),
+                                hasApiKey = settings.activeApiKey.isNotBlank(),
                                 onRefreshAmbient = { viewModel.refreshAmbientNote() },
                                 onSendMessage = { viewModel.sendChatMessage(it) },
                                 onClearHistory = { viewModel.clearChatHistory() },
@@ -133,7 +130,6 @@ class MainActivity : ComponentActivity() {
                             )
                         }
                     } else {
-                        // 直向模式：上 70% 翻頁鐘 + 下 30% Grok
                         Column(modifier = Modifier.fillMaxSize()) {
                             FlipClockPanel(
                                 now = now,
@@ -156,11 +152,12 @@ class MainActivity : ComponentActivity() {
                             )
 
                             GrokPanel(
+                                providerLabel = settings.aiProvider.shortName,
                                 ambientNote = settings.ambientNote,
                                 isAmbientLoading = isAmbientLoading,
                                 messages = messages,
                                 isChatLoading = isChatLoading,
-                                hasApiKey = settings.apiKey.isNotBlank(),
+                                hasApiKey = settings.activeApiKey.isNotBlank(),
                                 onRefreshAmbient = { viewModel.refreshAmbientNote() },
                                 onSendMessage = { viewModel.sendChatMessage(it) },
                                 onClearHistory = { viewModel.clearChatHistory() },
@@ -175,8 +172,19 @@ class MainActivity : ComponentActivity() {
                         SettingsDialog(
                             currentSettings = settings,
                             onDismiss = { showSettingsDialog = false },
-                            onSave = { key, model, prompt, theme, is24, useGps, city ->
-                                viewModel.saveSettings(key, model, prompt, theme, is24, useGps, city)
+                            onSave = { provider, grokKey, geminiKey, grokModel, geminiModel, prompt, theme, is24, useGps, city ->
+                                viewModel.saveSettings(
+                                    provider,
+                                    grokKey,
+                                    geminiKey,
+                                    grokModel,
+                                    geminiModel,
+                                    prompt,
+                                    theme,
+                                    is24,
+                                    useGps,
+                                    city
+                                )
                             }
                         )
                     }
