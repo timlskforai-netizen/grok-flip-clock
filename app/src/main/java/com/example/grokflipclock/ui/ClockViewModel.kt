@@ -13,6 +13,10 @@ import com.example.grokflipclock.data.local.SettingsRepository
 import com.example.grokflipclock.data.local.UserSettings
 import com.example.grokflipclock.data.remote.AiChatRequest
 import com.example.grokflipclock.data.remote.AiMessage
+import com.example.grokflipclock.data.remote.GeminiContent
+import com.example.grokflipclock.data.remote.GeminiGenerateRequest
+import com.example.grokflipclock.data.remote.GeminiGenerationConfig
+import com.example.grokflipclock.data.remote.GeminiPart
 import com.example.grokflipclock.data.remote.NetworkModule
 import com.google.android.gms.location.LocationServices
 import kotlinx.coroutines.Dispatchers
@@ -26,6 +30,8 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withContext
+import retrofit2.HttpException
+import java.net.URLEncoder
 import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter
 import java.util.Locale
@@ -161,11 +167,85 @@ class ClockViewModel(application: Application) : AndroidViewModel(application) {
         }.getOrNull()
     }
 
-    private fun resolveEndpoint(provider: AiProvider): String {
-        return when (provider) {
-            AiProvider.GROK -> NetworkModule.GROK_CHAT_URL
-            AiProvider.GEMINI -> NetworkModule.GEMINI_CHAT_URL
+    private suspend fun callAiCompletion(
+        currentSettings: UserSettings,
+        history: List<ChatMessageEntity> = emptyList(),
+        singlePrompt: String? = null,
+        temperature: Double = 0.7
+    ): String {
+        val apiKey = currentSettings.activeApiKey.trim()
+        val rawModel = currentSettings.activeModelName.trim()
+
+        return when (currentSettings.aiProvider) {
+            AiProvider.GROK -> {
+                val messages = buildList {
+                    if (currentSettings.systemPrompt.isNotBlank()) {
+                        add(AiMessage("system", currentSettings.systemPrompt.trim()))
+                    }
+                    if (singlePrompt != null) {
+                        add(AiMessage("user", singlePrompt))
+                    } else {
+                        history.forEach { add(AiMessage(it.role, it.content)) }
+                    }
+                }
+                val resp = NetworkModule.aiChatApi.createChatCompletion(
+                    url = NetworkModule.GROK_CHAT_URL,
+                    authHeader = "Bearer $apiKey",
+                    request = AiChatRequest(
+                        model = rawModel.ifEmpty { "grok-3" },
+                        messages = messages,
+                        temperature = temperature
+                    )
+                )
+                resp.choices.firstOrNull()?.message?.content?.trim().orEmpty()
+            }
+
+            AiProvider.GEMINI -> {
+                val cleanModel = rawModel.removePrefix("models/").ifEmpty { "gemini-2.5-flash" }
+                val encodedKey = URLEncoder.encode(apiKey, "UTF-8")
+                val url = if (apiKey.startsWith("AQ.")) {
+                    "https://aiplatform.googleapis.com/v1/publishers/google/models/$cleanModel:generateContent?key=$encodedKey"
+                } else {
+                    "https://generativelanguage.googleapis.com/v1beta/models/$cleanModel:generateContent?key=$encodedKey"
+                }
+
+                val contents = if (singlePrompt != null) {
+                    listOf(GeminiContent(role = "user", parts = listOf(GeminiPart(singlePrompt))))
+                } else {
+                    history.map { entity ->
+                        val geminiRole = if (entity.role == "assistant") "model" else "user"
+                        GeminiContent(role = geminiRole, parts = listOf(GeminiPart(entity.content)))
+                    }.dropWhile { it.role != "user" }
+                }
+
+                val sysInstruction = currentSettings.systemPrompt.trim()
+                    .takeIf { it.isNotEmpty() }
+                    ?.let { GeminiContent(parts = listOf(GeminiPart(it))) }
+
+                val resp = NetworkModule.aiChatApi.generateGeminiContent(
+                    url = url,
+                    request = GeminiGenerateRequest(
+                        systemInstruction = sysInstruction,
+                        contents = contents,
+                        generationConfig = GeminiGenerationConfig(temperature = temperature)
+                    )
+                )
+                resp.candidates?.firstOrNull()?.content?.parts
+                    ?.joinToString("") { it.text }
+                    ?.trim()
+                    .orEmpty()
+            }
         }
+    }
+
+    private fun formatApiError(providerLabel: String, e: Exception): String {
+        if (e is HttpException) {
+            val rawBody = runCatching { e.response()?.errorBody()?.string() }.getOrNull().orEmpty()
+            val msg = Regex("\"message\"\\s*:\\s*\"([^\"]+)\"").find(rawBody)?.groupValues?.getOrNull(1)
+            val detail = msg ?: rawBody.take(120).ifBlank { e.message() }
+            return "$providerLabel 錯誤 (${e.code()})：$detail"
+        }
+        return "$providerLabel 連線失敗：${e.localizedMessage ?: "請檢查網絡或 API Key"}"
     }
 
     fun refreshAmbientNote() {
@@ -187,25 +267,16 @@ class ClockViewModel(application: Application) : AndroidViewModel(application) {
                 val weatherStr = "${_weather.value.cityName} ${_weather.value.temperatureText} ${_weather.value.conditionText}"
                 val prompt = "現在時間係 $timeStr，當地天氣：$weatherStr。請根據呢個時段同天氣，寫一句 50 字以內嘅桌面小提示、問候或者冷知識（唔好加開頭標題）。"
 
-                val req = AiChatRequest(
-                    model = currentSettings.activeModelName,
-                    messages = listOf(
-                        AiMessage("system", currentSettings.systemPrompt),
-                        AiMessage("user", prompt)
-                    ),
+                val reply = callAiCompletion(
+                    currentSettings = currentSettings,
+                    singlePrompt = prompt,
                     temperature = 0.8
                 )
-                val resp = NetworkModule.aiChatApi.createChatCompletion(
-                    url = resolveEndpoint(currentSettings.aiProvider),
-                    authHeader = "Bearer $apiKey",
-                    request = req
-                )
-                val reply = resp.choices.firstOrNull()?.message?.content?.trim()
-                if (!reply.isNullOrEmpty()) {
+                if (reply.isNotEmpty()) {
                     settingsRepo.updateAmbientNote(reply)
                 }
             } catch (e: Exception) {
-                settingsRepo.updateAmbientNote("$providerLabel 連線失敗：${e.localizedMessage ?: "請檢查網絡或 API Key"}")
+                settingsRepo.updateAmbientNote(formatApiError(providerLabel, e))
             } finally {
                 _isAmbientLoading.value = false
             }
@@ -236,28 +307,18 @@ class ClockViewModel(application: Application) : AndroidViewModel(application) {
             _isChatLoading.value = true
             try {
                 val recent = chatDao.getRecentMessages(12).reversed()
-                val apiMessages = buildList {
-                    add(AiMessage("system", currentSettings.systemPrompt))
-                    recent.forEach { entity ->
-                        add(AiMessage(entity.role, entity.content))
-                    }
-                }
+                val reply = callAiCompletion(
+                    currentSettings = currentSettings,
+                    history = recent,
+                    temperature = 0.7
+                ).ifEmpty { "(無回覆內容)" }
 
-                val resp = NetworkModule.aiChatApi.createChatCompletion(
-                    url = resolveEndpoint(currentSettings.aiProvider),
-                    authHeader = "Bearer $apiKey",
-                    request = AiChatRequest(
-                        model = currentSettings.activeModelName,
-                        messages = apiMessages
-                    )
-                )
-                val reply = resp.choices.firstOrNull()?.message?.content?.trim() ?: "(無回覆內容)"
                 chatDao.insertMessage(ChatMessageEntity(role = "assistant", content = reply))
             } catch (e: Exception) {
                 chatDao.insertMessage(
                     ChatMessageEntity(
                         role = "assistant",
-                        content = "$providerLabel 請求出錯：${e.localizedMessage ?: "請檢查 API Key 或模型名稱"}"
+                        content = formatApiError(providerLabel, e)
                     )
                 )
             } finally {
