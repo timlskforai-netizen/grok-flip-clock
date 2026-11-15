@@ -5,13 +5,14 @@ import android.app.Application
 import android.location.Geocoder
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.example.grokflipclock.data.local.AiProvider
 import com.example.grokflipclock.data.local.AppDatabase
 import com.example.grokflipclock.data.local.ChatMessageEntity
 import com.example.grokflipclock.data.local.ClockThemeMode
 import com.example.grokflipclock.data.local.SettingsRepository
 import com.example.grokflipclock.data.local.UserSettings
-import com.example.grokflipclock.data.remote.GrokChatRequest
-import com.example.grokflipclock.data.remote.GrokMessage
+import com.example.grokflipclock.data.remote.AiChatRequest
+import com.example.grokflipclock.data.remote.AiMessage
 import com.example.grokflipclock.data.remote.NetworkModule
 import com.google.android.gms.location.LocationServices
 import kotlinx.coroutines.Dispatchers
@@ -85,20 +86,18 @@ class ClockViewModel(application: Application) : AndroidViewModel(application) {
 
     private fun startPeriodicWeatherAndAmbient() {
         viewModelScope.launch {
-            // 首次啟動延遲少許等 DataStore 讀取完成
             delay(500L)
             refreshWeather()
-            if (settings.first().apiKey.isNotBlank()) {
+            if (settings.first().activeApiKey.isNotBlank()) {
                 refreshAmbientNote()
             }
 
             var ticks = 0
             while (true) {
-                delay(30 * 60 * 1000L) // 每 30 分鐘更新天氣
+                delay(30 * 60 * 1000L)
                 ticks++
                 refreshWeather()
-                if (ticks % 4 == 0 && settings.value.apiKey.isNotBlank()) {
-                    // 每 2 小時自動更新一次 Grok Ambient 簡報
+                if (ticks % 4 == 0 && settings.value.activeApiKey.isNotBlank()) {
                     refreshAmbientNote()
                 }
             }
@@ -162,11 +161,21 @@ class ClockViewModel(application: Application) : AndroidViewModel(application) {
         }.getOrNull()
     }
 
+    private fun resolveEndpoint(provider: AiProvider): String {
+        return when (provider) {
+            AiProvider.GROK -> NetworkModule.GROK_CHAT_URL
+            AiProvider.GEMINI -> NetworkModule.GEMINI_CHAT_URL
+        }
+    }
+
     fun refreshAmbientNote() {
         val currentSettings = settings.value
-        if (currentSettings.apiKey.isBlank()) {
+        val providerLabel = currentSettings.aiProvider.shortName
+        val apiKey = currentSettings.activeApiKey
+
+        if (apiKey.isBlank()) {
             viewModelScope.launch {
-                settingsRepo.updateAmbientNote("請先點擊時鐘右上角 ⚙️ 輸入 xAI API Key，即可啟用 Grok 自動時間簡報。")
+                settingsRepo.updateAmbientNote("請先點擊時鐘右上角 ⚙️ 輸入 $providerLabel API Key，即可啟用自動時間簡報。")
             }
             return
         }
@@ -178,16 +187,17 @@ class ClockViewModel(application: Application) : AndroidViewModel(application) {
                 val weatherStr = "${_weather.value.cityName} ${_weather.value.temperatureText} ${_weather.value.conditionText}"
                 val prompt = "現在時間係 $timeStr，當地天氣：$weatherStr。請根據呢個時段同天氣，寫一句 50 字以內嘅桌面小提示、問候或者冷知識（唔好加開頭標題）。"
 
-                val req = GrokChatRequest(
-                    model = currentSettings.modelName,
+                val req = AiChatRequest(
+                    model = currentSettings.activeModelName,
                     messages = listOf(
-                        GrokMessage("system", currentSettings.systemPrompt),
-                        GrokMessage("user", prompt)
+                        AiMessage("system", currentSettings.systemPrompt),
+                        AiMessage("user", prompt)
                     ),
                     temperature = 0.8
                 )
-                val resp = NetworkModule.grokApi.createChatCompletion(
-                    authHeader = "Bearer ${currentSettings.apiKey}",
+                val resp = NetworkModule.aiChatApi.createChatCompletion(
+                    url = resolveEndpoint(currentSettings.aiProvider),
+                    authHeader = "Bearer $apiKey",
                     request = req
                 )
                 val reply = resp.choices.firstOrNull()?.message?.content?.trim()
@@ -195,7 +205,7 @@ class ClockViewModel(application: Application) : AndroidViewModel(application) {
                     settingsRepo.updateAmbientNote(reply)
                 }
             } catch (e: Exception) {
-                settingsRepo.updateAmbientNote("Grok 連線失敗：${e.localizedMessage ?: "請檢查網絡或 API Key"}")
+                settingsRepo.updateAmbientNote("$providerLabel 連線失敗：${e.localizedMessage ?: "請檢查網絡或 API Key"}")
             } finally {
                 _isAmbientLoading.value = false
             }
@@ -210,11 +220,14 @@ class ClockViewModel(application: Application) : AndroidViewModel(application) {
             chatDao.insertMessage(ChatMessageEntity(role = "user", content = trimmed))
 
             val currentSettings = settings.value
-            if (currentSettings.apiKey.isBlank()) {
+            val providerLabel = currentSettings.aiProvider.shortName
+            val apiKey = currentSettings.activeApiKey
+
+            if (apiKey.isBlank()) {
                 chatDao.insertMessage(
                     ChatMessageEntity(
                         role = "assistant",
-                        content = "未設定 xAI API Key，請先按右上角 ⚙️ 輸入 Key。"
+                        content = "未設定 $providerLabel API Key，請先按右上角 ⚙️ 輸入 Key。"
                     )
                 )
                 return@launch
@@ -222,19 +235,19 @@ class ClockViewModel(application: Application) : AndroidViewModel(application) {
 
             _isChatLoading.value = true
             try {
-                // 讀取最近 12 條對話記憶維持上下文
                 val recent = chatDao.getRecentMessages(12).reversed()
                 val apiMessages = buildList {
-                    add(GrokMessage("system", currentSettings.systemPrompt))
+                    add(AiMessage("system", currentSettings.systemPrompt))
                     recent.forEach { entity ->
-                        add(GrokMessage(entity.role, entity.content))
+                        add(AiMessage(entity.role, entity.content))
                     }
                 }
 
-                val resp = NetworkModule.grokApi.createChatCompletion(
-                    authHeader = "Bearer ${currentSettings.apiKey}",
-                    request = GrokChatRequest(
-                        model = currentSettings.modelName,
+                val resp = NetworkModule.aiChatApi.createChatCompletion(
+                    url = resolveEndpoint(currentSettings.aiProvider),
+                    authHeader = "Bearer $apiKey",
+                    request = AiChatRequest(
+                        model = currentSettings.activeModelName,
                         messages = apiMessages
                     )
                 )
@@ -244,7 +257,7 @@ class ClockViewModel(application: Application) : AndroidViewModel(application) {
                 chatDao.insertMessage(
                     ChatMessageEntity(
                         role = "assistant",
-                        content = "請求出錯：${e.localizedMessage ?: "請檢查 API Key 或模型名稱"}"
+                        content = "$providerLabel 請求出錯：${e.localizedMessage ?: "請檢查 API Key 或模型名稱"}"
                     )
                 )
             } finally {
@@ -266,8 +279,11 @@ class ClockViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun saveSettings(
-        apiKey: String,
-        modelName: String,
+        aiProvider: AiProvider,
+        grokApiKey: String,
+        geminiApiKey: String,
+        grokModelName: String,
+        geminiModelName: String,
         systemPrompt: String,
         themeMode: ClockThemeMode,
         is24Hour: Boolean,
@@ -275,10 +291,15 @@ class ClockViewModel(application: Application) : AndroidViewModel(application) {
         manualCity: String
     ) {
         viewModelScope.launch {
-            val previousKey = settings.value.apiKey
+            val prevProvider = settings.value.aiProvider
+            val prevKey = settings.value.activeApiKey
+
             settingsRepo.saveSettings(
-                apiKey = apiKey,
-                modelName = modelName,
+                aiProvider = aiProvider,
+                grokApiKey = grokApiKey,
+                geminiApiKey = geminiApiKey,
+                grokModelName = grokModelName,
+                geminiModelName = geminiModelName,
                 systemPrompt = systemPrompt,
                 themeMode = themeMode,
                 is24Hour = is24Hour,
@@ -286,7 +307,9 @@ class ClockViewModel(application: Application) : AndroidViewModel(application) {
                 manualCity = manualCity
             )
             refreshWeather()
-            if (apiKey.isNotBlank() && apiKey != previousKey) {
+
+            val newKey = if (aiProvider == AiProvider.GROK) grokApiKey.trim() else geminiApiKey.trim()
+            if (newKey.isNotBlank() && (aiProvider != prevProvider || newKey != prevKey)) {
                 refreshAmbientNote()
             }
         }
