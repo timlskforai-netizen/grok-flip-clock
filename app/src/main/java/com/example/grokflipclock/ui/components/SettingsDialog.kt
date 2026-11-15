@@ -29,6 +29,7 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.grokflipclock.data.local.AiProvider
 import com.example.grokflipclock.data.local.ClockThemeMode
 import com.example.grokflipclock.data.local.UserSettings
 
@@ -37,8 +38,11 @@ fun SettingsDialog(
     currentSettings: UserSettings,
     onDismiss: () -> Unit,
     onSave: (
-        apiKey: String,
-        modelName: String,
+        aiProvider: AiProvider,
+        grokApiKey: String,
+        geminiApiKey: String,
+        grokModelName: String,
+        geminiModelName: String,
         systemPrompt: String,
         themeMode: ClockThemeMode,
         is24Hour: Boolean,
@@ -46,9 +50,12 @@ fun SettingsDialog(
         manualCity: String
     ) -> Unit
 ) {
-    var apiKey by remember { mutableStateOf(currentSettings.apiKey) }
+    var aiProvider by remember { mutableStateOf(currentSettings.aiProvider) }
+    var grokApiKey by remember { mutableStateOf(currentSettings.grokApiKey) }
+    var geminiApiKey by remember { mutableStateOf(currentSettings.geminiApiKey) }
     var showKey by remember { mutableStateOf(false) }
-    var modelName by remember { mutableStateOf(currentSettings.modelName) }
+    var grokModelName by remember { mutableStateOf(currentSettings.grokModelName) }
+    var geminiModelName by remember { mutableStateOf(currentSettings.geminiModelName) }
     var systemPrompt by remember { mutableStateOf(currentSettings.systemPrompt) }
     var themeMode by remember { mutableStateOf(currentSettings.themeMode) }
     var is24Hour by remember { mutableStateOf(currentSettings.is24Hour) }
@@ -58,7 +65,7 @@ fun SettingsDialog(
     AlertDialog(
         onDismissRequest = onDismiss,
         title = {
-            Text(text = "時鐘與 Grok 設定", fontWeight = FontWeight.Bold)
+            Text(text = "時鐘與 AI 助理設定", fontWeight = FontWeight.Bold)
         },
         text = {
             Column(
@@ -67,43 +74,80 @@ fun SettingsDialog(
                     .verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                // xAI API Key
-                OutlinedTextField(
-                    value = apiKey,
-                    onValueChange = { apiKey = it },
-                    label = { Text("xAI API Key (xai-...)") },
-                    singleLine = true,
-                    visualTransformation = if (showKey) VisualTransformation.None else PasswordVisualTransformation(),
-                    trailingIcon = {
-                        IconButton(onClick = { showKey = !showKey }) {
-                            Icon(
-                                imageVector = if (showKey) Icons.Rounded.VisibilityOff else Icons.Rounded.Visibility,
-                                contentDescription = "顯示/隱藏 API Key"
-                            )
-                        }
-                    },
-                    modifier = Modifier.fillMaxWidth()
-                )
+                Text(text = "選擇 AI 引擎", fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    FilterChip(
+                        selected = aiProvider == AiProvider.GROK,
+                        onClick = { aiProvider = AiProvider.GROK },
+                        label = { Text("Grok (xAI)") }
+                    )
+                    FilterChip(
+                        selected = aiProvider == AiProvider.GEMINI,
+                        onClick = { aiProvider = AiProvider.GEMINI },
+                        label = { Text("Gemini (Google)") }
+                    )
+                }
 
-                // Grok Model
-                OutlinedTextField(
-                    value = modelName,
-                    onValueChange = { modelName = it },
-                    label = { Text("Grok 模型 (如 grok-3 / grok-3-mini)") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth()
-                )
+                if (aiProvider == AiProvider.GROK) {
+                    OutlinedTextField(
+                        value = grokApiKey,
+                        onValueChange = { grokApiKey = it },
+                        label = { Text("xAI Grok API Key (xai-...)") },
+                        singleLine = true,
+                        visualTransformation = if (showKey) VisualTransformation.None else PasswordVisualTransformation(),
+                        trailingIcon = {
+                            IconButton(onClick = { showKey = !showKey }) {
+                                Icon(
+                                    imageVector = if (showKey) Icons.Rounded.VisibilityOff else Icons.Rounded.Visibility,
+                                    contentDescription = "顯示/隱藏 API Key"
+                                )
+                            }
+                        },
+                        modifier = Modifier.fillMaxWidth()
+                    )
 
-                // System Prompt
+                    OutlinedTextField(
+                        value = grokModelName,
+                        onValueChange = { grokModelName = it },
+                        label = { Text("Grok 模型 (如 grok-3 / grok-3-mini)") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                } else {
+                    OutlinedTextField(
+                        value = geminiApiKey,
+                        onValueChange = { geminiApiKey = it },
+                        label = { Text("Google Gemini API Key (AIza...)") },
+                        singleLine = true,
+                        visualTransformation = if (showKey) VisualTransformation.None else PasswordVisualTransformation(),
+                        trailingIcon = {
+                            IconButton(onClick = { showKey = !showKey }) {
+                                Icon(
+                                    imageVector = if (showKey) Icons.Rounded.VisibilityOff else Icons.Rounded.Visibility,
+                                    contentDescription = "顯示/隱藏 API Key"
+                                )
+                            }
+                        },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+
+                    OutlinedTextField(
+                        value = geminiModelName,
+                        onValueChange = { geminiModelName = it },
+                        label = { Text("Gemini 模型 (如 gemini-2.5-flash)") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+
                 OutlinedTextField(
                     value = systemPrompt,
                     onValueChange = { systemPrompt = it },
-                    label = { Text("Grok 人設與回覆風格 (System Prompt)") },
+                    label = { Text("AI 人設與回覆風格 (System Prompt)") },
                     maxLines = 3,
                     modifier = Modifier.fillMaxWidth()
                 )
 
-                // 主題選擇
                 Text(text = "視覺主題", fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     FilterChip(
@@ -118,7 +162,6 @@ fun SettingsDialog(
                     )
                 }
 
-                // 24 小時制
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
@@ -128,7 +171,6 @@ fun SettingsDialog(
                     Switch(checked = is24Hour, onCheckedChange = { is24Hour = it })
                 }
 
-                // GPS 定位天氣
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
@@ -153,8 +195,11 @@ fun SettingsDialog(
             TextButton(
                 onClick = {
                     onSave(
-                        apiKey,
-                        modelName,
+                        aiProvider,
+                        grokApiKey,
+                        geminiApiKey,
+                        grokModelName,
+                        geminiModelName,
                         systemPrompt,
                         themeMode,
                         is24Hour,
