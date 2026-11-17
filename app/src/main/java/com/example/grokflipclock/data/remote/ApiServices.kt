@@ -34,7 +34,7 @@ data class AiChatResponse(
     val choices: List<AiChoice>
 )
 
-// --- Google Gemini / Vertex Express Native Models (支援 AQ. 及 AIza 金鑰) ---
+// --- Google Gemini Native Models ---
 data class GeminiPart(
     val text: String
 )
@@ -79,13 +79,20 @@ interface AiChatApiService {
 
 // --- Open-Meteo Weather & Geocoding Models ---
 data class OpenMeteoResponse(
-    @SerializedName("current_weather") val currentWeather: CurrentWeatherDto?
+    @SerializedName("current_weather") val currentWeather: CurrentWeatherDto?,
+    val hourly: HourlyWeatherDto?
 )
 
 data class CurrentWeatherDto(
     val temperature: Double,
     val weathercode: Int,
     val windspeed: Double
+)
+
+data class HourlyWeatherDto(
+    val time: List<String>?,
+    @SerializedName("temperature_2m") val temperature2m: List<Double>?,
+    val weathercode: List<Int>?
 )
 
 data class GeocodingResponse(
@@ -104,7 +111,10 @@ interface WeatherApiService {
     suspend fun getCurrentWeather(
         @Query("latitude") latitude: Double,
         @Query("longitude") longitude: Double,
-        @Query("current_weather") currentWeather: Boolean = true
+        @Query("current_weather") currentWeather: Boolean = true,
+        @Query("hourly") hourly: String = "temperature_2m,weathercode",
+        @Query("timezone") timezone: String = "auto",
+        @Query("forecast_days") forecastDays: Int = 2
     ): OpenMeteoResponse
 }
 
