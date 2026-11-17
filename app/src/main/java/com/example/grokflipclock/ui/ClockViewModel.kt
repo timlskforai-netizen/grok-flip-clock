@@ -3,6 +3,7 @@ package com.example.grokflipclock.ui
 import android.annotation.SuppressLint
 import android.app.Application
 import android.location.Geocoder
+import android.location.Location
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.grokflipclock.data.local.AiProvider
@@ -17,10 +18,14 @@ import com.example.grokflipclock.data.remote.GeminiContent
 import com.example.grokflipclock.data.remote.GeminiGenerateRequest
 import com.example.grokflipclock.data.remote.GeminiGenerationConfig
 import com.example.grokflipclock.data.remote.GeminiPart
+import com.example.grokflipclock.data.remote.HkoCurrentWeatherResponse
 import com.example.grokflipclock.data.remote.HourlyWeatherDto
 import com.example.grokflipclock.data.remote.NetworkModule
 import com.google.android.gms.location.LocationServices
+import com.google.android.gms.location.Priority
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -54,6 +59,12 @@ data class WeatherUiState(
     val hourlyForecasts: List<HourlyForecastItem> = emptyList()
 )
 
+private data class HkoStation(
+    val nameTc: String,
+    val lat: Double,
+    val lon: Double
+)
+
 class ClockViewModel(application: Application) : AndroidViewModel(application) {
 
     private val settingsRepo = SettingsRepository(application)
@@ -83,6 +94,39 @@ class ClockViewModel(application: Application) : AndroidViewModel(application) {
 
     private val _isChatLoading = MutableStateFlow(false)
     val isChatLoading: StateFlow<Boolean> = _isChatLoading.asStateFlow()
+
+    companion object {
+        // 香港天文台主要自動氣象站座標表
+        private val HKO_STATIONS = listOf(
+            HkoStation("香港天文台", 22.3019, 114.1742),
+            HkoStation("京士柏", 22.3119, 114.1728),
+            HkoStation("黃竹坑", 22.2478, 114.1736),
+            HkoStation("打鼓嶺", 22.5286, 114.1567),
+            HkoStation("流浮山", 22.4689, 113.9836),
+            HkoStation("大埔", 22.4461, 114.1789),
+            HkoStation("沙田", 22.4025, 114.2100),
+            HkoStation("屯門", 22.3906, 113.9767),
+            HkoStation("將軍澳", 22.3158, 114.2556),
+            HkoStation("西貢", 22.3756, 114.2744),
+            HkoStation("長洲", 22.2011, 114.0267),
+            HkoStation("赤鱲角", 22.3094, 113.9219),
+            HkoStation("青衣", 22.3481, 114.1100),
+            HkoStation("石崗", 22.4361, 114.0847),
+            HkoStation("荃灣可觀", 22.3836, 114.1078),
+            HkoStation("荃灣城門谷", 22.3756, 114.1267),
+            HkoStation("香港公園", 22.2783, 114.1622),
+            HkoStation("筲箕灣", 22.2817, 114.2361),
+            HkoStation("九龍城", 22.3350, 114.1847),
+            HkoStation("跑馬地", 22.2706, 114.1836),
+            HkoStation("黃大仙", 22.3394, 114.2053),
+            HkoStation("赤柱", 22.2142, 114.2186),
+            HkoStation("觀塘", 22.3186, 114.2247),
+            HkoStation("深水埗", 22.3358, 114.1369),
+            HkoStation("啟德跑道公園", 22.3097, 114.2144),
+            HkoStation("元朗公園", 22.4408, 114.0183),
+            HkoStation("大美督", 22.4753, 114.2375)
+        )
+    }
 
     init {
         startClockTicker()
@@ -126,16 +170,26 @@ class ClockViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             val currentSettings = settings.value
             try {
-                var lat = 22.3193
-                var lon = 114.1694
+                // 預設香港天文台總部座標
+                var lat = 22.3019
+                var lon = 114.1742
                 var resolvedCity = currentSettings.manualCity
 
                 if (currentSettings.useDeviceLocation) {
-                    val loc = runCatching { fusedLocationClient.lastLocation.await() }.getOrNull()
+                    // 使用低功耗大概定位（Wi-Fi / 流動網絡），室內桌面亦可秒速獲取座標
+                    val loc = runCatching {
+                        fusedLocationClient.getCurrentLocation(
+                            Priority.PRIORITY_BALANCED_POWER_ACCURACY,
+                            null
+                        ).await()
+                    }.getOrNull() ?: runCatching {
+                        fusedLocationClient.lastLocation.await()
+                    }.getOrNull()
+
                     if (loc != null) {
                         lat = loc.latitude
                         lon = loc.longitude
-                        resolvedCity = reverseGeocodeCity(lat, lon) ?: "Local"
+                        resolvedCity = reverseGeocodeCity(lat, lon) ?: "Hong Kong"
                     } else {
                         val geo = NetworkModule.geocodingApi.searchCity(currentSettings.manualCity).results?.firstOrNull()
                         if (geo != null) {
@@ -153,22 +207,155 @@ class ClockViewModel(application: Application) : AndroidViewModel(application) {
                     }
                 }
 
-                val response = NetworkModule.weatherApi.getCurrentWeather(lat, lon)
-                val cw = response.currentWeather
-                val fourHourly = extractFourHourlyForecasts(response.hourly)
+                val inHongKong = isInsideHongKong(lat, lon)
 
-                if (cw != null) {
-                    _weather.value = WeatherUiState(
-                        cityName = resolvedCity,
-                        temperatureText = "${cw.temperature.roundToInt()}°C",
-                        conditionText = mapWeatherCodeToText(cw.weathercode),
-                        weatherCode = cw.weathercode,
-                        hourlyForecasts = fourHourly
-                    )
+                coroutineScope {
+                    // 1. 並行獲取 JMA 每 4 小時預報（若超出東亞覆蓋範圍則自動後備切換 best_match）
+                    val jmaForecastDeferred = async {
+                        runCatching {
+                            val jmaResp = NetworkModule.weatherApi.getCurrentWeather(
+                                latitude = lat,
+                                longitude = lon,
+                                models = "jma_seamless"
+                            )
+                            if (extractFourHourlyForecasts(jmaResp.hourly).isNotEmpty()) {
+                                jmaResp
+                            } else {
+                                NetworkModule.weatherApi.getCurrentWeather(
+                                    latitude = lat,
+                                    longitude = lon,
+                                    models = "best_match"
+                                )
+                            }
+                        }.getOrNull()
+                    }
+
+                    // 2. 若身處香港境內，並行獲取香港天文台分區實測數據
+                    val hkoDeferred = if (inHongKong) {
+                        async {
+                            runCatching {
+                                NetworkModule.hkoWeatherApi.getCurrentRegionalWeather()
+                            }.getOrNull()
+                        }
+                    } else {
+                        null
+                    }
+
+                    val openMeteoResp = jmaForecastDeferred.await()
+                    val hkoResp = hkoDeferred?.await()
+                    val fourHourly = extractFourHourlyForecasts(openMeteoResp?.hourly)
+
+                    val hkoParsed = if (inHongKong && hkoResp != null) {
+                        parseNearestHkoStation(lat, lon, hkoResp)
+                    } else {
+                        null
+                    }
+
+                    if (hkoParsed != null) {
+                        // 香港境內：使用天文台最近分區站實測氣溫 + JMA 每 4 小時預報
+                        _weather.value = WeatherUiState(
+                            cityName = "${hkoParsed.stationName} · HKO",
+                            temperatureText = "${hkoParsed.tempCelsius.roundToInt()}°C",
+                            conditionText = hkoParsed.conditionWithHumidity,
+                            weatherCode = hkoParsed.wmoEquivalentCode,
+                            hourlyForecasts = fourHourly
+                        )
+                    } else if (openMeteoResp?.currentWeather != null) {
+                        // 外地（如日本旅行）或天文台接口暫時無回應：自動無縫使用 JMA / Open-Meteo 實測推算
+                        val cw = openMeteoResp.currentWeather
+                        _weather.value = WeatherUiState(
+                            cityName = resolvedCity,
+                            temperatureText = "${cw.temperature.roundToInt()}°C",
+                            conditionText = mapWeatherCodeToText(cw.weathercode),
+                            weatherCode = cw.weathercode,
+                            hourlyForecasts = fourHourly
+                        )
+                    } else {
+                        _weather.value = _weather.value.copy(conditionText = "離線")
+                    }
                 }
             } catch (_: Exception) {
                 _weather.value = _weather.value.copy(conditionText = "離線")
             }
+        }
+    }
+
+    private fun isInsideHongKong(lat: Double, lon: Double): Boolean {
+        return lat in 22.14..22.58 && lon in 113.80..114.46
+    }
+
+    private data class HkoParsedWeather(
+        val stationName: String,
+        val tempCelsius: Double,
+        val conditionWithHumidity: String,
+        val wmoEquivalentCode: Int
+    )
+
+    private fun parseNearestHkoStation(
+        userLat: Double,
+        userLon: Double,
+        hko: HkoCurrentWeatherResponse
+    ): HkoParsedWeather? {
+        val tempReadings = hko.temperature?.data
+            ?.filter { !it.place.isNullOrBlank() && it.value != null }
+            ?: return null
+        if (tempReadings.isEmpty()) return null
+
+        val readingMap = tempReadings.associate { it.place!! to it.value!! }
+
+        // 從當前有正常讀數嘅天文台自動氣象站之中，搵出距離最近嘅分區站
+        val availableStations = HKO_STATIONS.filter { readingMap.containsKey(it.nameTc) }
+        val nearestStation = availableStations.minByOrNull { station ->
+            val results = FloatArray(1)
+            Location.distanceBetween(userLat, userLon, station.lat, station.lon, results)
+            results[0]
+        }
+
+        val chosenPlace = nearestStation?.nameTc ?: tempReadings.first().place!!
+        val chosenTemp = readingMap[chosenPlace] ?: tempReadings.first().value!!
+
+        val iconCode = hko.icon?.firstOrNull() ?: 60
+        val (conditionText, wmoCode) = mapHkoIconToConditionAndWmo(iconCode)
+
+        val humidityVal = hko.humidity?.data?.firstOrNull { it.value != null }?.value?.roundToInt()
+        val fullCondition = if (humidityVal != null) {
+            "$conditionText · $humidityVal%"
+        } else {
+            conditionText
+        }
+
+        return HkoParsedWeather(
+            stationName = chosenPlace,
+            tempCelsius = chosenTemp,
+            conditionWithHumidity = fullCondition,
+            wmoEquivalentCode = wmoCode
+        )
+    }
+
+    private fun mapHkoIconToConditionAndWmo(hkoIcon: Int): Pair<String, Int> {
+        return when (hkoIcon) {
+            50 -> "陽光充沛" to 0
+            51 -> "間有陽光" to 1
+            52 -> "短暫陽光" to 2
+            53 -> "陽光驟雨" to 80
+            54 -> "短暫驟雨" to 80
+            60 -> "多雲" to 3
+            61 -> "密雲" to 3
+            62 -> "微雨" to 51
+            63 -> "有雨" to 61
+            64 -> "大雨" to 65
+            65 -> "雷暴" to 95
+            70, 71, 72, 73, 74, 75 -> "天色良好" to 0
+            76 -> "大致多雲" to 2
+            77 -> "大致良好" to 1
+            80 -> "大風" to 2
+            81 -> "乾燥" to 0
+            82 -> "潮濕" to 2
+            83, 84 -> "有霧" to 45
+            85 -> "煙霞" to 45
+            90, 91 -> "炎熱" to 0
+            92, 93 -> "清涼" to 1
+            else -> "多雲" to 3
         }
     }
 
