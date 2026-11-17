@@ -17,6 +17,7 @@ import com.example.grokflipclock.data.remote.GeminiContent
 import com.example.grokflipclock.data.remote.GeminiGenerateRequest
 import com.example.grokflipclock.data.remote.GeminiGenerationConfig
 import com.example.grokflipclock.data.remote.GeminiPart
+import com.example.grokflipclock.data.remote.HourlyWeatherDto
 import com.example.grokflipclock.data.remote.NetworkModule
 import com.google.android.gms.location.LocationServices
 import kotlinx.coroutines.Dispatchers
@@ -34,13 +35,23 @@ import retrofit2.HttpException
 import java.net.URLEncoder
 import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter
+import java.time.temporal.ChronoUnit
 import java.util.Locale
+import kotlin.math.roundToInt
+
+data class HourlyForecastItem(
+    val timeLabel: String,
+    val temperatureText: String,
+    val conditionText: String,
+    val weatherCode: Int
+)
 
 data class WeatherUiState(
     val cityName: String = "Hong Kong",
     val temperatureText: String = "--°C",
     val conditionText: String = "載入中",
-    val weatherCode: Int = 1
+    val weatherCode: Int = 1,
+    val hourlyForecasts: List<HourlyForecastItem> = emptyList()
 )
 
 class ClockViewModel(application: Application) : AndroidViewModel(application) {
@@ -144,16 +155,55 @@ class ClockViewModel(application: Application) : AndroidViewModel(application) {
 
                 val response = NetworkModule.weatherApi.getCurrentWeather(lat, lon)
                 val cw = response.currentWeather
+                val fourHourly = extractFourHourlyForecasts(response.hourly)
+
                 if (cw != null) {
                     _weather.value = WeatherUiState(
                         cityName = resolvedCity,
-                        temperatureText = "${cw.temperature.toInt()}°C",
+                        temperatureText = "${cw.temperature.roundToInt()}°C",
                         conditionText = mapWeatherCodeToText(cw.weathercode),
-                        weatherCode = cw.weathercode
+                        weatherCode = cw.weathercode,
+                        hourlyForecasts = fourHourly
                     )
                 }
             } catch (_: Exception) {
                 _weather.value = _weather.value.copy(conditionText = "離線")
+            }
+        }
+    }
+
+    private fun extractFourHourlyForecasts(hourly: HourlyWeatherDto?): List<HourlyForecastItem> {
+        val times = hourly?.time ?: return emptyList()
+        val temps = hourly.temperature2m ?: return emptyList()
+        val codes = hourly.weathercode ?: return emptyList()
+
+        val currentHour = LocalDateTime.now().truncatedTo(ChronoUnit.HOURS)
+        val targetOffsets = listOf(4L, 8L, 12L, 16L, 20L)
+        val timeFormatter = DateTimeFormatter.ofPattern("HH:mm")
+
+        val parsedSlots = times.indices.mapNotNull { idx ->
+            val dt = runCatching {
+                LocalDateTime.parse(times[idx], DateTimeFormatter.ISO_LOCAL_DATE_TIME)
+            }.getOrNull()
+            val temp = temps.getOrNull(idx)
+            val code = codes.getOrNull(idx)
+            if (dt != null && temp != null && code != null) {
+                Triple(dt, temp, code)
+            } else {
+                null
+            }
+        }
+
+        return targetOffsets.mapNotNull { offset ->
+            val targetTime = currentHour.plusHours(offset)
+            val match = parsedSlots.firstOrNull { it.first == targetTime }
+            match?.let { (dt, temp, code) ->
+                HourlyForecastItem(
+                    timeLabel = dt.format(timeFormatter),
+                    temperatureText = "${temp.roundToInt()}°",
+                    conditionText = mapWeatherCodeToText(code),
+                    weatherCode = code
+                )
             }
         }
     }
