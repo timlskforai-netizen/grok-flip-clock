@@ -1,11 +1,14 @@
 package com.example.grokflipclock.ui.components
 
-import androidx.compose.animation.core.Animatable
-import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -18,7 +21,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.shape.GenericShape
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.AcUnit
@@ -30,30 +33,23 @@ import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material.icons.rounded.Thunderstorm
 import androidx.compose.material.icons.rounded.WaterDrop
 import androidx.compose.material.icons.rounded.WbSunny
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.VerticalDivider
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.geometry.Rect
-import androidx.compose.ui.graphics.TransformOrigin
-import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.grokflipclock.ui.HourlyForecastItem
 import com.example.grokflipclock.ui.WeatherUiState
 import com.example.grokflipclock.ui.theme.LocalClockPalette
 import java.time.DayOfWeek
@@ -78,139 +74,217 @@ fun FlipClockPanel(
     val displayHour = if (is24Hour) {
         rawHour
     } else {
-        val h = rawHour % 12
-        if (h == 0) 12 else h
+        when (val h = rawHour % 12) {
+            0 -> 12
+            else -> h
+        }
     }
-    val amPmLabel = if (rawHour < 12) "AM" else "PM"
+    val amPmText = if (rawHour < 12) "AM" else "PM"
 
     val hourStr = String.format(Locale.US, "%02d", displayHour)
     val minStr = String.format(Locale.US, "%02d", now.minute)
     val secStr = String.format(Locale.US, "%02d", now.second)
 
-    val dateFormatter = remember { DateTimeFormatter.ofPattern("yyyy年MM月dd日", Locale.TRADITIONAL_CHINESE) }
-    val dateText = now.format(dateFormatter)
-    val dayOfWeekText = formatDayOfWeek(now.dayOfWeek)
+    val datePart = now.format(DateTimeFormatter.ofPattern("yyyy年M月d日"))
+    val chineseWeekday = mapChineseWeekday(now.dayOfWeek)
+    val englishWeekday = now.format(DateTimeFormatter.ofPattern("EEE", Locale.ENGLISH))
 
-    Box(
+    BoxWithConstraints(
         modifier = modifier
             .background(palette.background)
             .padding(horizontal = 16.dp, vertical = 12.dp)
     ) {
-        // 頂部工具列：天氣資訊 + 主題切換 / 全螢幕 / 設定
+        val availWidth = maxWidth
+        val availHeight = maxHeight
+        val isCompactHeight = availHeight < 340.dp
+
+        // 動態計算翻頁卡片尺寸，確保喺 70% 分割視窗入面依然大字體且唔會超出邊界
+        val cardWidth = ((availWidth - 64.dp) / 6.8f).coerceIn(38.dp, 128.dp)
+        val cardHeight = (cardWidth * 1.38f).coerceAtMost(availHeight * 0.44f)
+        val digitFontSize = (cardHeight.value * 0.62f).sp
+
+        // 1. 右上角功能列（主題切換 / 全螢幕切換 / 設定）
         Row(
             modifier = Modifier
-                .fillMaxWidth()
-                .align(Alignment.TopCenter),
-            horizontalArrangement = Arrangement.SpaceBetween,
+                .align(Alignment.TopEnd)
+                .alpha(0.75f),
+            horizontalArrangement = Arrangement.spacedBy(2.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            WeatherBadge(weather = weather)
-
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                IconButton(onClick = onToggleTheme) {
-                    Icon(
-                        imageVector = Icons.Rounded.Palette,
-                        contentDescription = "切換主題",
-                        tint = palette.secondaryText
-                    )
-                }
-                IconButton(onClick = onToggleFullscreen) {
-                    Icon(
-                        imageVector = if (isFullscreen) Icons.Rounded.FullscreenExit else Icons.Rounded.Fullscreen,
-                        contentDescription = "全螢幕切換",
-                        tint = palette.secondaryText
-                    )
-                }
-                IconButton(onClick = onOpenSettings) {
-                    Icon(
-                        imageVector = Icons.Rounded.Settings,
-                        contentDescription = "設定",
-                        tint = palette.secondaryText
-                    )
-                }
+            IconButton(onClick = onToggleTheme, modifier = Modifier.size(36.dp)) {
+                Icon(
+                    imageVector = Icons.Rounded.Palette,
+                    contentDescription = "切換主題",
+                    tint = palette.secondaryText,
+                    modifier = Modifier.size(20.dp)
+                )
+            }
+            IconButton(onClick = onToggleFullscreen, modifier = Modifier.size(36.dp)) {
+                Icon(
+                    imageVector = if (isFullscreen) Icons.Rounded.FullscreenExit else Icons.Rounded.Fullscreen,
+                    contentDescription = "切換全螢幕",
+                    tint = palette.secondaryText,
+                    modifier = Modifier.size(20.dp)
+                )
+            }
+            IconButton(onClick = onOpenSettings, modifier = Modifier.size(36.dp)) {
+                Icon(
+                    imageVector = Icons.Rounded.Settings,
+                    contentDescription = "設定",
+                    tint = palette.secondaryText,
+                    modifier = Modifier.size(20.dp)
+                )
             }
         }
 
-        // 中央主體：日期星期 + 3D 翻頁鐘 (HH : MM : SS)
+        // 2. 中央主視覺：日期 + 機械翻頁時鐘 + 實時及每 4 小時天氣預報
         Column(
             modifier = Modifier
-                .fillMaxWidth()
-                .align(Alignment.Center),
+                .align(Alignment.Center)
+                .fillMaxWidth(),
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Center
         ) {
+            // 日期與星期
+            Text(
+                text = "$datePart  ·  $chineseWeekday  ·  $englishWeekday",
+                color = palette.secondaryText,
+                fontSize = if (isCompactHeight) 13.sp else 16.sp,
+                fontWeight = FontWeight.Medium,
+                letterSpacing = 1.sp
+            )
+
+            Spacer(modifier = Modifier.height(if (isCompactHeight) 10.dp else 18.dp))
+
+            // 翻頁數字列 (HH : MM : SS)
             Row(
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
             ) {
-                Text(
-                    text = dateText,
-                    color = palette.primaryText,
-                    fontSize = 18.sp,
-                    fontWeight = FontWeight.Medium,
-                    letterSpacing = 1.sp
-                )
-                Text(
-                    text = "·",
-                    color = palette.accent,
-                    fontSize = 18.sp,
-                    fontWeight = FontWeight.Bold
-                )
-                Text(
-                    text = dayOfWeekText,
-                    color = palette.secondaryText,
-                    fontSize = 17.sp,
-                    fontWeight = FontWeight.Normal
-                )
                 if (!is24Hour) {
-                    Surface(
-                        color = palette.cardBackground,
-                        shape = RoundedCornerShape(6.dp),
-                        border = BorderStroke(1.dp, palette.cardBorder)
-                    ) {
-                        Text(
-                            text = amPmLabel,
-                            color = palette.accent,
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.Bold,
-                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                        )
+                    Text(
+                        text = amPmText,
+                        color = palette.accent,
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.padding(end = 2.dp)
+                    )
+                }
+
+                FlipDigitCard(
+                    digit = hourStr[0],
+                    width = cardWidth,
+                    height = cardHeight,
+                    fontSize = digitFontSize
+                )
+                FlipDigitCard(
+                    digit = hourStr[1],
+                    width = cardWidth,
+                    height = cardHeight,
+                    fontSize = digitFontSize
+                )
+
+                ColonSeparator(height = cardHeight)
+
+                FlipDigitCard(
+                    digit = minStr[0],
+                    width = cardWidth,
+                    height = cardHeight,
+                    fontSize = digitFontSize
+                )
+                FlipDigitCard(
+                    digit = minStr[1],
+                    width = cardWidth,
+                    height = cardHeight,
+                    fontSize = digitFontSize
+                )
+
+                ColonSeparator(height = cardHeight)
+
+                FlipDigitCard(
+                    digit = secStr[0],
+                    width = cardWidth,
+                    height = cardHeight,
+                    fontSize = digitFontSize
+                )
+                FlipDigitCard(
+                    digit = secStr[1],
+                    width = cardWidth,
+                    height = cardHeight,
+                    fontSize = digitFontSize
+                )
+            }
+
+            Spacer(modifier = Modifier.height(if (isCompactHeight) 12.dp else 22.dp))
+
+            // 時鐘下方：實時天氣 + 每 4 小時天氣及溫度預報卡片
+            WeatherForecastStrip(
+                weather = weather,
+                isWideLayout = availWidth >= 460.dp
+            )
+        }
+    }
+}
+
+@Composable
+private fun WeatherForecastStrip(
+    weather: WeatherUiState,
+    isWideLayout: Boolean
+) {
+    val palette = LocalClockPalette.current
+
+    Surface(
+        color = palette.cardBackground,
+        shape = RoundedCornerShape(16.dp),
+        border = BorderStroke(1.dp, palette.cardBorder),
+        modifier = Modifier.widthIn(max = 660.dp)
+    ) {
+        if (isWideLayout && weather.hourlyForecasts.isNotEmpty()) {
+            // 橫向 / 70% 分割視窗：左邊實時天氣，右邊每 4 小時預報並列
+            Row(
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(14.dp)
+            ) {
+                CurrentWeatherBlock(weather = weather)
+
+                VerticalDivider(
+                    modifier = Modifier.height(36.dp),
+                    thickness = 1.dp,
+                    color = palette.divider
+                )
+
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(14.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    weather.hourlyForecasts.forEach { item ->
+                        FourHourSlot(item = item)
                     }
                 }
             }
-
-            Spacer(modifier = Modifier.height(18.dp))
-
-            BoxWithConstraints(
-                modifier = Modifier.fillMaxWidth(),
-                contentAlignment = Alignment.Center
+        } else {
+            // 較窄視窗：上下兩層排列
+            Column(
+                modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                // 根據可用寬度自動計算 3 組雙位翻頁卡尺寸
-                val availableWidth = maxWidth
-                val cardWidth = ((availableWidth - 56.dp) / 6f).coerceIn(38.dp, 125.dp)
-                val cardHeight = cardWidth * 1.42f
-                val fontSize = (cardWidth.value * 0.86f).sp
-                val colonSize = (cardWidth.value * 0.55f).sp
+                CurrentWeatherBlock(weather = weather)
 
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
-                ) {
-                    // 時 (HH)
-                    FlipDigitCard(digit = hourStr[0].toString(), width = cardWidth, height = cardHeight, fontSize = fontSize)
-                    FlipDigitCard(digit = hourStr[1].toString(), width = cardWidth, height = cardHeight, fontSize = fontSize)
-
-                    ColonSeparator(size = colonSize)
-
-                    // 分 (MM)
-                    FlipDigitCard(digit = minStr[0].toString(), width = cardWidth, height = cardHeight, fontSize = fontSize)
-                    FlipDigitCard(digit = minStr[1].toString(), width = cardWidth, height = cardHeight, fontSize = fontSize)
-
-                    ColonSeparator(size = colonSize)
-
-                    // 秒 (SS)
-                    FlipDigitCard(digit = secStr[0].toString(), width = cardWidth, height = cardHeight, fontSize = fontSize)
-                    FlipDigitCard(digit = secStr[1].toString(), width = cardWidth, height = cardHeight, fontSize = fontSize)
+                if (weather.hourlyForecasts.isNotEmpty()) {
+                    HorizontalDivider(
+                        thickness = 1.dp,
+                        color = palette.divider
+                    )
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(14.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        weather.hourlyForecasts.forEach { item ->
+                            FourHourSlot(item = item)
+                        }
+                    }
                 }
             }
         }
@@ -218,203 +292,163 @@ fun FlipClockPanel(
 }
 
 @Composable
-private fun ColonSeparator(size: TextUnit) {
+private fun CurrentWeatherBlock(weather: WeatherUiState) {
     val palette = LocalClockPalette.current
-    Text(
-        text = ":",
-        color = palette.secondaryText,
-        fontSize = size,
-        fontWeight = FontWeight.Bold,
-        modifier = Modifier.padding(horizontal = 1.dp)
-    )
+
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        Icon(
+            imageVector = mapWeatherCodeToIcon(weather.weatherCode),
+            contentDescription = weather.conditionText,
+            tint = palette.accent,
+            modifier = Modifier.size(24.dp)
+        )
+        Column {
+            Text(
+                text = weather.cityName,
+                color = palette.secondaryText,
+                fontSize = 11.sp,
+                fontWeight = FontWeight.Medium
+            )
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(5.dp)
+            ) {
+                Text(
+                    text = weather.temperatureText,
+                    color = palette.primaryText,
+                    fontSize = 16.sp,
+                    fontWeight = FontWeight.Bold
+                )
+                Text(
+                    text = weather.conditionText,
+                    color = palette.secondaryText,
+                    fontSize = 12.sp
+                )
+            }
+        }
+    }
 }
 
 @Composable
-fun FlipDigitCard(
-    digit: String,
+private fun FourHourSlot(item: HourlyForecastItem) {
+    val palette = LocalClockPalette.current
+
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(2.dp)
+    ) {
+        Text(
+            text = item.timeLabel,
+            color = palette.secondaryText,
+            fontSize = 11.sp,
+            fontWeight = FontWeight.Medium
+        )
+        Icon(
+            imageVector = mapWeatherCodeToIcon(item.weatherCode),
+            contentDescription = item.conditionText,
+            tint = palette.primaryText,
+            modifier = Modifier.size(16.dp)
+        )
+        Text(
+            text = "${item.temperatureText} ${item.conditionText}",
+            color = palette.primaryText,
+            fontSize = 11.5.sp,
+            fontWeight = FontWeight.SemiBold
+        )
+    }
+}
+
+@Composable
+private fun FlipDigitCard(
+    digit: Char,
     width: Dp,
     height: Dp,
     fontSize: TextUnit
 ) {
     val palette = LocalClockPalette.current
-    var oldDigit by remember { mutableStateOf(digit) }
-    val flipAnim = remember { Animatable(1f) }
 
-    LaunchedEffect(digit) {
-        if (digit != oldDigit) {
-            flipAnim.snapTo(0f)
-            flipAnim.animateTo(
-                targetValue = 1f,
-                animationSpec = tween(durationMillis = 420, easing = FastOutSlowInEasing)
-            )
-            oldDigit = digit
-        }
-    }
-
-    val progress = flipAnim.value
-    val cornerShape = RoundedCornerShape(12.dp)
-
-    val topHalfShape = remember {
-        GenericShape { size, _ ->
-            addRect(Rect(0f, 0f, size.width, size.height / 2f))
-        }
-    }
-    val bottomHalfShape = remember {
-        GenericShape { size, _ ->
-            addRect(Rect(0f, size.height / 2f, size.width, size.height))
-        }
-    }
-
-    Box(
+    Surface(
+        color = palette.cardBackground,
+        shape = RoundedCornerShape(12.dp),
+        border = BorderStroke(1.dp, palette.cardBorder),
         modifier = Modifier
             .width(width)
             .height(height)
-            .clip(cornerShape)
-            .border(1.dp, palette.cardBorder, cornerShape)
     ) {
-        // 1. 靜態上半部（顯示新數字）
-        DigitHalfFace(
-            digit = digit,
-            fontSize = fontSize,
-            clipShape = topHalfShape
-        )
-
-        // 2. 靜態下半部（動畫未過半前顯示舊數字，過半後顯示新數字）
-        DigitHalfFace(
-            digit = if (progress >= 1f) digit else oldDigit,
-            fontSize = fontSize,
-            clipShape = bottomHalfShape
-        )
-
-        // 3. 翻動頁片（上半段由 0° 向下翻至 -90°；下半段由 +90° 向下翻至 0°）
-        if (progress < 1f) {
-            if (progress <= 0.5f) {
-                val angle = -progress * 180f
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .graphicsLayer {
-                            transformOrigin = TransformOrigin(0.5f, 0.5f)
-                            rotationX = angle
-                            cameraDistance = 14f * density
-                        }
-                ) {
-                    DigitHalfFace(
-                        digit = oldDigit,
-                        fontSize = fontSize,
-                        clipShape = topHalfShape
-                    )
-                }
-            } else {
-                val angle = (1f - progress) * 180f
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .graphicsLayer {
-                            transformOrigin = TransformOrigin(0.5f, 0.5f)
-                            rotationX = angle
-                            cameraDistance = 14f * density
-                        }
-                ) {
-                    DigitHalfFace(
-                        digit = digit,
-                        fontSize = fontSize,
-                        clipShape = bottomHalfShape
-                    )
-                }
+        Box(contentAlignment = Alignment.Center) {
+            AnimatedContent(
+                targetState = digit,
+                transitionSpec = {
+                    (slideInVertically(animationSpec = tween(220)) { -it / 2 } + fadeIn(tween(180)))
+                        .togetherWith(
+                            slideOutVertically(animationSpec = tween(220)) { it / 2 } + fadeOut(tween(180))
+                        )
+                },
+                label = "flip_digit"
+            ) { targetDigit ->
+                Text(
+                    text = targetDigit.toString(),
+                    color = palette.primaryText,
+                    fontSize = fontSize,
+                    fontWeight = FontWeight.Bold
+                )
             }
-        }
 
-        // 4. 中央機械轉軸細縫
+            // 機械翻頁鐘中間分割幼線
+            HorizontalDivider(
+                modifier = Modifier
+                    .align(Alignment.Center)
+                    .fillMaxWidth(),
+                thickness = 1.dp,
+                color = palette.background.copy(alpha = 0.65f)
+            )
+        }
+    }
+}
+
+@Composable
+private fun ColonSeparator(height: Dp) {
+    val palette = LocalClockPalette.current
+    Column(
+        modifier = Modifier.height(height * 0.45f),
+        verticalArrangement = Arrangement.SpaceBetween,
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
         Box(
             modifier = Modifier
-                .fillMaxWidth()
-                .height(1.5.dp)
-                .background(palette.hingeLine)
-                .align(Alignment.Center)
+                .size(5.dp)
+                .background(palette.secondaryText.copy(alpha = 0.7f), RoundedCornerShape(50))
+        )
+        Box(
+            modifier = Modifier
+                .size(5.dp)
+                .background(palette.secondaryText.copy(alpha = 0.7f), RoundedCornerShape(50))
         )
     }
 }
 
-@Composable
-private fun DigitHalfFace(
-    digit: String,
-    fontSize: TextUnit,
-    clipShape: GenericShape
-) {
-    val palette = LocalClockPalette.current
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .clip(clipShape)
-            .background(palette.cardBackground),
-        contentAlignment = Alignment.Center
-    ) {
-        Text(
-            text = digit,
-            color = palette.digitText,
-            fontSize = fontSize,
-            fontWeight = FontWeight.Bold,
-            fontFamily = FontFamily.SansSerif,
-            textAlign = TextAlign.Center,
-            maxLines = 1
-        )
-    }
-}
-
-@Composable
-private fun WeatherBadge(weather: WeatherUiState) {
-    val palette = LocalClockPalette.current
-    Surface(
-        color = palette.cardBackground,
-        shape = RoundedCornerShape(20.dp),
-        border = BorderStroke(1.dp, palette.cardBorder)
-    ) {
-        Row(
-            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(6.dp)
-        ) {
-            Icon(
-                imageVector = weatherCodeToIcon(weather.weatherCode),
-                contentDescription = weather.conditionText,
-                tint = palette.accent,
-                modifier = Modifier.size(18.dp)
-            )
-            Text(
-                text = "${weather.cityName} · ${weather.temperatureText}",
-                color = palette.primaryText,
-                fontSize = 13.sp,
-                fontWeight = FontWeight.Medium
-            )
-            Text(
-                text = weather.conditionText,
-                color = palette.secondaryText,
-                fontSize = 12.sp
-            )
-        }
-    }
-}
-
-private fun weatherCodeToIcon(code: Int): ImageVector {
+private fun mapWeatherCodeToIcon(code: Int): ImageVector {
     return when (code) {
         0, 1 -> Icons.Rounded.WbSunny
         2, 3, 45, 48 -> Icons.Rounded.Cloud
         51, 53, 55, 61, 63, 65, 80, 81, 82 -> Icons.Rounded.WaterDrop
-        71, 73, 75, 77, 85, 86 -> Icons.Rounded.AcUnit
+        71, 73, 75, 77 -> Icons.Rounded.AcUnit
         95, 96, 99 -> Icons.Rounded.Thunderstorm
         else -> Icons.Rounded.Cloud
     }
 }
 
-private fun formatDayOfWeek(day: DayOfWeek): String {
-    return when (day) {
-        DayOfWeek.MONDAY -> "星期一 · Mon"
-        DayOfWeek.TUESDAY -> "星期二 · Tue"
-        DayOfWeek.WEDNESDAY -> "星期三 · Wed"
-        DayOfWeek.THURSDAY -> "星期四 · Thu"
-        DayOfWeek.FRIDAY -> "星期五 · Fri"
-        DayOfWeek.SATURDAY -> "星期六 · Sat"
-        DayOfWeek.SUNDAY -> "星期日 · Sun"
+private fun mapChineseWeekday(dayOfWeek: DayOfWeek): String {
+    return when (dayOfWeek) {
+        DayOfWeek.MONDAY -> "星期一"
+        DayOfWeek.TUESDAY -> "星期二"
+        DayOfWeek.WEDNESDAY -> "星期三"
+        DayOfWeek.THURSDAY -> "星期四"
+        DayOfWeek.FRIDAY -> "星期五"
+        DayOfWeek.SATURDAY -> "星期六"
+        DayOfWeek.SUNDAY -> "星期日"
     }
 }
