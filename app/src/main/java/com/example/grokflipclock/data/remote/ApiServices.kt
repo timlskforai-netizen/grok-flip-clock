@@ -77,6 +77,37 @@ interface AiChatApiService {
     ): GeminiGenerateResponse
 }
 
+// --- Hong Kong Observatory (HKO) Open Data Models ---
+data class HkoCurrentWeatherResponse(
+    val temperature: HkoTemperatureContainer?,
+    val icon: List<Int>?,
+    val humidity: HkoHumidityContainer?
+)
+
+data class HkoTemperatureContainer(
+    val data: List<HkoPlaceValue>?,
+    val recordTime: String?
+)
+
+data class HkoHumidityContainer(
+    val data: List<HkoPlaceValue>?,
+    val recordTime: String?
+)
+
+data class HkoPlaceValue(
+    val place: String?,
+    val value: Double?,
+    val unit: String?
+)
+
+interface HkoWeatherApiService {
+    @GET("weatherAPI/opendata/weather.php")
+    suspend fun getCurrentRegionalWeather(
+        @Query("dataType") dataType: String = "rhrread",
+        @Query("lang") lang: String = "tc"
+    ): HkoCurrentWeatherResponse
+}
+
 // --- Open-Meteo Weather & Geocoding Models ---
 data class OpenMeteoResponse(
     @SerializedName("current_weather") val currentWeather: CurrentWeatherDto?,
@@ -113,6 +144,7 @@ interface WeatherApiService {
         @Query("longitude") longitude: Double,
         @Query("current_weather") currentWeather: Boolean = true,
         @Query("hourly") hourly: String = "temperature_2m,weathercode",
+        @Query("models") models: String = "jma_seamless",
         @Query("timezone") timezone: String = "auto",
         @Query("forecast_days") forecastDays: Int = 2
     ): OpenMeteoResponse
@@ -149,6 +181,15 @@ object NetworkModule {
             .addConverterFactory(GsonConverterFactory.create())
             .build()
             .create(AiChatApiService::class.java)
+    }
+
+    val hkoWeatherApi: HkoWeatherApiService by lazy {
+        Retrofit.Builder()
+            .baseUrl("https://data.weather.gov.hk/")
+            .client(okHttpClient)
+            .addConverterFactory(GsonConverterFactory.create())
+            .build()
+            .create(HkoWeatherApiService::class.java)
     }
 
     val weatherApi: WeatherApiService by lazy {
