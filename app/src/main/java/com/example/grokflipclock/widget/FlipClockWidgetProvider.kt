@@ -10,9 +10,12 @@ import android.content.res.Configuration
 import android.graphics.Color
 import android.location.Location
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.util.TypedValue
 import android.view.View
 import android.widget.RemoteViews
+import android.widget.Toast
 import com.example.grokflipclock.MainActivity
 import com.example.grokflipclock.R
 import com.example.grokflipclock.data.remote.HourlyWeatherDto
@@ -31,7 +34,9 @@ data class WidgetManualConfig(
     val is24Hour: Boolean = true,
     val showDate: Boolean = true,
     val showForecast: Boolean = true,
-    val rowLayoutStyle: String = "center", // "center"（置中三欄） 或 "left_right"（左右並排）
+    val rowLayoutStyle: String = "left_right", // "left_right"（左右並排） 或 "center"（置中三欄）
+    val showOuterFrame: Boolean = true,         // false = 純卡片懸浮無外框
+    val showConfigButton: Boolean = true,       // false = 隱藏右上角齒輪（長按 Widget 仍可入設定）
     val themeStyle: String = "dark",
     val bgAlphaPercent: Int = 90,
     val fontScalePercent: Int = 100
@@ -47,7 +52,7 @@ class FlipClockWidgetProvider : AppWidgetProvider() {
         for (appWidgetId in appWidgetIds) {
             updateSingleWidget(context, appWidgetManager, appWidgetId)
         }
-        fetchWeatherForAllWidgets(context)
+        fetchWeatherForAllWidgets(context, notifyUser = false)
     }
 
     override fun onAppWidgetOptionsChanged(
@@ -63,7 +68,10 @@ class FlipClockWidgetProvider : AppWidgetProvider() {
     override fun onReceive(context: Context, intent: Intent) {
         super.onReceive(context, intent)
         if (intent.action == ACTION_REFRESH_WEATHER) {
-            fetchWeatherForAllWidgets(context)
+            Handler(Looper.getMainLooper()).post {
+                Toast.makeText(context.applicationContext, "正在更新天氣…", Toast.LENGTH_SHORT).show()
+            }
+            fetchWeatherForAllWidgets(context, notifyUser = true)
         }
     }
 
@@ -77,12 +85,16 @@ class FlipClockWidgetProvider : AppWidgetProvider() {
                 .remove("cfg_${id}_date")
                 .remove("cfg_${id}_forecast")
                 .remove("cfg_${id}_row_style")
+                .remove("cfg_${id}_outer_frame")
+                .remove("cfg_${id}_show_gear")
                 .remove("cfg_${id}_theme")
                 .remove("cfg_${id}_alpha")
                 .remove("cfg_${id}_scale")
                 .remove("data_${id}_city")
                 .remove("data_${id}_temp")
                 .remove("data_${id}_cond")
+                .remove("data_${id}_icon")
+                .remove("data_${id}_updated")
                 .remove("data_${id}_summary")
         }
         editor.apply()
@@ -94,6 +106,8 @@ class FlipClockWidgetProvider : AppWidgetProvider() {
         private const val KEY_CITY = "city"
         private const val KEY_TEMP = "temp"
         private const val KEY_CONDITION = "condition"
+        private const val KEY_ICON = "icon"
+        private const val KEY_UPDATED = "updated"
         private const val KEY_SUMMARY = "summary"
         private const val KEY_IS_24H = "is_24h"
         private const val KEY_LAT = "lat"
@@ -138,7 +152,9 @@ class FlipClockWidgetProvider : AppWidgetProvider() {
                 is24Hour = prefs.getBoolean("cfg_${appWidgetId}_24h", global24h),
                 showDate = prefs.getBoolean("cfg_${appWidgetId}_date", true),
                 showForecast = prefs.getBoolean("cfg_${appWidgetId}_forecast", true),
-                rowLayoutStyle = prefs.getString("cfg_${appWidgetId}_row_style", "center") ?: "center",
+                rowLayoutStyle = prefs.getString("cfg_${appWidgetId}_row_style", "left_right") ?: "left_right",
+                showOuterFrame = prefs.getBoolean("cfg_${appWidgetId}_outer_frame", true),
+                showConfigButton = prefs.getBoolean("cfg_${appWidgetId}_show_gear", true),
                 themeStyle = prefs.getString("cfg_${appWidgetId}_theme", "dark") ?: "dark",
                 bgAlphaPercent = prefs.getInt("cfg_${appWidgetId}_alpha", 90),
                 fontScalePercent = prefs.getInt("cfg_${appWidgetId}_scale", 100)
@@ -153,13 +169,15 @@ class FlipClockWidgetProvider : AppWidgetProvider() {
                 .putBoolean("cfg_${appWidgetId}_date", config.showDate)
                 .putBoolean("cfg_${appWidgetId}_forecast", config.showForecast)
                 .putString("cfg_${appWidgetId}_row_style", config.rowLayoutStyle)
+                .putBoolean("cfg_${appWidgetId}_outer_frame", config.showOuterFrame)
+                .putBoolean("cfg_${appWidgetId}_show_gear", config.showConfigButton)
                 .putString("cfg_${appWidgetId}_theme", config.themeStyle)
                 .putInt("cfg_${appWidgetId}_alpha", config.bgAlphaPercent.coerceIn(0, 100))
                 .putInt("cfg_${appWidgetId}_scale", config.fontScalePercent.coerceIn(80, 130))
                 .apply()
 
             updateSingleWidget(context, AppWidgetManager.getInstance(context), appWidgetId)
-            fetchWeatherForWidget(context, appWidgetId)
+            fetchWeatherForWidget(context, appWidgetId, notifyUser = false)
         }
 
         fun syncFromApp(
@@ -172,10 +190,13 @@ class FlipClockWidgetProvider : AppWidgetProvider() {
             lat: Double? = null,
             lon: Double? = null
         ) {
+            val nowLabel = LocalDateTime.now().format(DateTimeFormatter.ofPattern("HH:mm")) + " 更新"
             val editor = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).edit()
                 .putString(KEY_CITY, city)
                 .putString(KEY_TEMP, temp)
                 .putString(KEY_CONDITION, condition)
+                .putString(KEY_ICON, inferEmojiFromCondition(condition))
+                .putString(KEY_UPDATED, nowLabel)
                 .putString(KEY_SUMMARY, hourlySummary)
                 .putBoolean(KEY_IS_24H, is24Hour)
 
@@ -195,15 +216,15 @@ class FlipClockWidgetProvider : AppWidgetProvider() {
             }
         }
 
-        fun fetchWeatherForAllWidgets(context: Context) {
+        fun fetchWeatherForAllWidgets(context: Context, notifyUser: Boolean = false) {
             val manager = AppWidgetManager.getInstance(context)
             val ids = manager.getAppWidgetIds(ComponentName(context, FlipClockWidgetProvider::class.java))
-            for (id in ids) {
-                fetchWeatherForWidget(context, id)
+            ids.forEachIndexed { index, id ->
+                fetchWeatherForWidget(context, id, notifyUser = notifyUser && index == 0)
             }
         }
 
-        fun fetchWeatherForWidget(context: Context, appWidgetId: Int) {
+        fun fetchWeatherForWidget(context: Context, appWidgetId: Int, notifyUser: Boolean = false) {
             CoroutineScope(Dispatchers.IO).launch {
                 try {
                     val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
@@ -240,6 +261,7 @@ class FlipClockWidgetProvider : AppWidgetProvider() {
 
                     val summary = extractCompactSummary(omResp?.hourly)
                         .ifEmpty { prefs.getString("data_${appWidgetId}_summary", null) ?: prefs.getString(KEY_SUMMARY, "") ?: "" }
+                    val nowLabel = LocalDateTime.now().format(DateTimeFormatter.ofPattern("HH:mm")) + " 更新"
 
                     val inHongKong = lat in 22.14..22.58 && lon in 113.80..114.46
                     if (inHongKong) {
@@ -258,32 +280,60 @@ class FlipClockWidgetProvider : AppWidgetProvider() {
                                 nearest?.first ?: readings.first().place!!
                             }
                             val temp = map[chosenPlace] ?: readings.first().value!!
-                            val cond = mapHkoIcon(hko?.icon?.firstOrNull() ?: 60)
+                            val iconCode = hko?.icon?.firstOrNull() ?: 60
+                            val cond = mapHkoIcon(iconCode)
+                            val emoji = mapHkoEmoji(iconCode)
                             val hum = hko?.humidity?.data?.firstOrNull { it.value != null }?.value?.roundToInt()
                             val condText = if (hum != null) "$cond · $hum%" else cond
+                            val tempStr = "${temp.roundToInt()}°C"
 
                             prefs.edit()
                                 .putString("data_${appWidgetId}_city", "$chosenPlace · HKO")
-                                .putString("data_${appWidgetId}_temp", "${temp.roundToInt()}°C")
+                                .putString("data_${appWidgetId}_temp", tempStr)
                                 .putString("data_${appWidgetId}_cond", condText)
+                                .putString("data_${appWidgetId}_icon", emoji)
+                                .putString("data_${appWidgetId}_updated", nowLabel)
                                 .putString("data_${appWidgetId}_summary", summary)
                                 .apply()
 
                             updateSingleWidget(context, AppWidgetManager.getInstance(context), appWidgetId)
+
+                            if (notifyUser) {
+                                Handler(Looper.getMainLooper()).post {
+                                    Toast.makeText(
+                                        context.applicationContext,
+                                        "已更新 $chosenPlace 天氣：$tempStr",
+                                        Toast.LENGTH_SHORT
+                                    ).show()
+                                }
+                            }
                             return@launch
                         }
                     }
 
                     val cw = omResp?.currentWeather
                     if (cw != null) {
+                        val tempStr = "${cw.temperature.roundToInt()}°C"
                         prefs.edit()
                             .putString("data_${appWidgetId}_city", resolvedCity)
-                            .putString("data_${appWidgetId}_temp", "${cw.temperature.roundToInt()}°C")
+                            .putString("data_${appWidgetId}_temp", tempStr)
                             .putString("data_${appWidgetId}_cond", mapWmoCode(cw.weathercode))
+                            .putString("data_${appWidgetId}_icon", mapWmoEmoji(cw.weathercode))
+                            .putString("data_${appWidgetId}_updated", nowLabel)
                             .putString("data_${appWidgetId}_summary", summary)
                             .apply()
 
                         updateSingleWidget(context, AppWidgetManager.getInstance(context), appWidgetId)
+
+                        if (notifyUser) {
+                            Handler(Looper.getMainLooper()).post {
+                                Toast.makeText(
+                                    context.applicationContext,
+                                    "已更新 $resolvedCity 天氣：$tempStr",
+                                    Toast.LENGTH_SHORT
+                                ).show()
+                            }
+                        }
                     }
                 } catch (_: Exception) {
                 }
@@ -306,7 +356,7 @@ class FlipClockWidgetProvider : AppWidgetProvider() {
             return offsets.mapNotNull { off ->
                 val target = currentHour.plusHours(off)
                 slots.firstOrNull { it.first == target }?.let { (dt, temp) ->
-                    "${dt.format(fmt)} ${temp.roundToInt()}°"
+                    "${dt.format(fmt)}${temp.roundToInt()}°"
                 }
             }.joinToString(" · ")
         }
@@ -339,14 +389,16 @@ class FlipClockWidgetProvider : AppWidgetProvider() {
 
             val layoutId = when {
                 is2x1Compact -> R.layout.widget_flip_clock_2x1
-                isSingleRowHeight && cfg.rowLayoutStyle == "left_right" -> R.layout.widget_flip_clock_row_lr
-                isSingleRowHeight -> R.layout.widget_flip_clock_row
+                isSingleRowHeight && cfg.rowLayoutStyle == "center" -> R.layout.widget_flip_clock_row
+                isSingleRowHeight -> R.layout.widget_flip_clock_row_lr
                 else -> R.layout.widget_flip_clock
             }
 
             val fallbackCity = prefs.getString(KEY_CITY, "Hong Kong") ?: "Hong Kong"
             val fallbackTemp = prefs.getString(KEY_TEMP, "--°C") ?: "--°C"
             val fallbackCond = prefs.getString(KEY_CONDITION, "輕觸更新") ?: "輕觸更新"
+            val fallbackIcon = prefs.getString(KEY_ICON, "☁️") ?: "☁️"
+            val fallbackUpdated = prefs.getString(KEY_UPDATED, "") ?: ""
             val fallbackSummary = prefs.getString(KEY_SUMMARY, "") ?: ""
 
             val rawCity = if (cfg.useManualLocation) {
@@ -357,6 +409,8 @@ class FlipClockWidgetProvider : AppWidgetProvider() {
             val displayCity = if (isSingleRowHeight) rawCity.substringBefore(" · ") else rawCity
             val temp = prefs.getString("data_${appWidgetId}_temp", fallbackTemp) ?: fallbackTemp
             val condition = prefs.getString("data_${appWidgetId}_cond", fallbackCond) ?: fallbackCond
+            val iconEmoji = prefs.getString("data_${appWidgetId}_icon", fallbackIcon) ?: fallbackIcon
+            val updatedAt = prefs.getString("data_${appWidgetId}_updated", fallbackUpdated) ?: fallbackUpdated
             val summary = prefs.getString("data_${appWidgetId}_summary", fallbackSummary) ?: fallbackSummary
 
             val views = RemoteViews(context.packageName, layoutId)
@@ -369,140 +423,16 @@ class FlipClockWidgetProvider : AppWidgetProvider() {
             }
             val cardDrawable = if (isLight) R.drawable.widget_card_light else R.drawable.widget_flip_card
             val alpha255 = (cfg.bgAlphaPercent * 255 / 100).coerceIn(0, 255)
-            val cardAlpha255 = if (cfg.bgAlphaPercent == 0) 85 else (cfg.bgAlphaPercent * 255 / 100).coerceIn(60, 255)
-
-            views.setImageViewResource(R.id.widget_bg_image, bgDrawable)
-            views.setInt(R.id.widget_bg_image, "setImageAlpha", alpha255)
-
-            views.setImageViewResource(R.id.widget_hour_card_bg, cardDrawable)
-            views.setInt(R.id.widget_hour_card_bg, "setImageAlpha", cardAlpha255)
-            views.setImageViewResource(R.id.widget_min_card_bg, cardDrawable)
-            views.setInt(R.id.widget_min_card_bg, "setImageAlpha", cardAlpha255)
-            views.setImageViewResource(R.id.widget_weather_card_bg, cardDrawable)
-            views.setInt(R.id.widget_weather_card_bg, "setImageAlpha", cardAlpha255)
-
-            if (layoutId == R.layout.widget_flip_clock_row) {
-                views.setImageViewResource(R.id.widget_date_card_bg, cardDrawable)
-                views.setInt(R.id.widget_date_card_bg, "setImageAlpha", cardAlpha255)
-            }
-
-            val primaryTextColor = if (isLight) Color.parseColor("#18181B") else Color.parseColor("#F4F4F5")
-            val secondaryTextColor = if (isLight) Color.parseColor("#52525B") else Color.parseColor("#A1A1AA")
-            val accentColor = if (isLight) Color.parseColor("#0284C7") else Color.parseColor("#38BDF8")
-
-            views.setTextColor(R.id.widget_date, secondaryTextColor)
-            views.setTextColor(R.id.widget_hour, primaryTextColor)
-            views.setTextColor(R.id.widget_minute, primaryTextColor)
-            views.setTextColor(R.id.widget_colon, secondaryTextColor)
-            views.setTextColor(R.id.widget_city, secondaryTextColor)
-            views.setTextColor(R.id.widget_temp, accentColor)
-            views.setTextColor(R.id.widget_condition, primaryTextColor)
-            views.setTextColor(R.id.widget_forecast_text, secondaryTextColor)
-
-            val scale = cfg.fontScalePercent / 100f
-            val baseDigitSp = when {
-                is2x1Compact -> 24f
-                layoutId == R.layout.widget_flip_clock_row_lr -> 28f
-                isSingleRowHeight -> 26f
-                else -> 42f
-            }
-            val baseColonSp = when {
-                is2x1Compact -> 18f
-                layoutId == R.layout.widget_flip_clock_row_lr -> 20f
-                isSingleRowHeight -> 18f
-                else -> 30f
-            }
-            views.setTextViewTextSize(R.id.widget_hour, TypedValue.COMPLEX_UNIT_SP, baseDigitSp * scale)
-            views.setTextViewTextSize(R.id.widget_minute, TypedValue.COMPLEX_UNIT_SP, baseDigitSp * scale)
-            views.setTextViewTextSize(R.id.widget_colon, TypedValue.COMPLEX_UNIT_SP, baseColonSp * scale)
-
-            views.setViewVisibility(R.id.widget_config_btn, View.VISIBLE)
-
-            val showDateNow = cfg.showDate && !is2x1Compact
-            views.setViewVisibility(R.id.widget_date, if (showDateNow) View.VISIBLE else View.GONE)
-
-            val hourFormat = if (cfg.is24Hour) "HH" else "hh"
-            views.setCharSequence(R.id.widget_hour, "setFormat12Hour", hourFormat)
-            views.setCharSequence(R.id.widget_hour, "setFormat24Hour", hourFormat)
-
-            views.setTextViewText(R.id.widget_city, displayCity)
-            views.setTextViewText(R.id.widget_temp, temp)
-            views.setTextViewText(R.id.widget_condition, condition)
-            views.setViewVisibility(R.id.widget_condition, View.VISIBLE)
-
-            val canShowForecast = cfg.showForecast && summary.isNotBlank() && !is2x1Compact
-            if (canShowForecast) {
-                views.setTextViewText(R.id.widget_forecast_text, summary)
-                views.setViewVisibility(R.id.widget_forecast_text, View.VISIBLE)
+            val cardAlpha255 = if (cfg.bgAlphaPercent == 0 || !cfg.showOuterFrame) {
+                (cfg.bgAlphaPercent * 255 / 100).coerceIn(170, 245)
             } else {
-                views.setViewVisibility(R.id.widget_forecast_text, View.GONE)
+                (cfg.bgAlphaPercent * 255 / 100).coerceIn(80, 255)
             }
 
-            val openAppIntent = Intent(context, MainActivity::class.java)
-            val openAppPending = PendingIntent.getActivity(
-                context,
-                appWidgetId * 10 + 1,
-                openAppIntent,
-                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-            )
-            views.setOnClickPendingIntent(R.id.widget_clock_container, openAppPending)
-
-            val refreshIntent = Intent(context, FlipClockWidgetProvider::class.java).apply {
-                action = ACTION_REFRESH_WEATHER
-            }
-            val refreshPending = PendingIntent.getBroadcast(
-                context,
-                appWidgetId * 10 + 2,
-                refreshIntent,
-                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-            )
-            views.setOnClickPendingIntent(R.id.widget_weather_bar, refreshPending)
-
-            val configIntent = Intent(context, FlipClockWidgetConfigActivity::class.java).apply {
-                putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, appWidgetId)
-            }
-            val configPending = PendingIntent.getActivity(
-                context,
-                appWidgetId * 10 + 3,
-                configIntent,
-                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-            )
-            views.setOnClickPendingIntent(R.id.widget_config_btn, configPending)
-
-            manager.updateAppWidget(appWidgetId, views)
-        }
-
-        private fun mapHkoIcon(icon: Int): String = when (icon) {
-            50 -> "陽光充沛"
-            51 -> "間有陽光"
-            52 -> "短暫陽光"
-            53, 54 -> "驟雨"
-            60, 61 -> "多雲"
-            62 -> "微雨"
-            63, 64 -> "有雨"
-            65 -> "雷暴"
-            70, 71, 72, 73, 74, 75, 77 -> "天色良好"
-            76 -> "大致多雲"
-            80 -> "大風"
-            81 -> "乾燥"
-            82 -> "潮濕"
-            83, 84, 85 -> "有霧"
-            90, 91 -> "炎熱"
-            92, 93 -> "清涼"
-            else -> "多雲"
-        }
-
-        private fun mapWmoCode(code: Int): String = when (code) {
-            0 -> "晴朗"
-            1, 2 -> "大致天晴"
-            3 -> "多雲"
-            45, 48 -> "有霧"
-            51, 53, 55 -> "毛毛雨"
-            61, 63, 65 -> "有雨"
-            71, 73, 75, 77 -> "降雪"
-            80, 81, 82 -> "驟雨"
-            95, 96, 99 -> "雷暴"
-            else -> "多雲"
-        }
-    }
-}
+            // 外層大框：可切換為無外框純卡片懸浮模式
+            if (cfg.showOuterFrame && cfg.bgAlphaPercent > 0) {
+                views.setViewVisibility(R.id.widget_bg_image, View.VISIBLE)
+                views.setImageViewResource(R.id.widget_bg_image, bgDrawable)
+                views.setInt(R.id.widget_bg_image, "setImageAlpha", alpha255)
+            } else {
+                views.setViewVisibility(R.id.widget_bg_image, View.GONE)
