@@ -21,6 +21,7 @@ import com.example.grokflipclock.data.remote.GeminiPart
 import com.example.grokflipclock.data.remote.HkoCurrentWeatherResponse
 import com.example.grokflipclock.data.remote.HourlyWeatherDto
 import com.example.grokflipclock.data.remote.NetworkModule
+import com.example.grokflipclock.widget.FlipClockWidgetProvider
 import com.google.android.gms.location.LocationServices
 import com.google.android.gms.location.Priority
 import kotlinx.coroutines.Dispatchers
@@ -96,7 +97,6 @@ class ClockViewModel(application: Application) : AndroidViewModel(application) {
     val isChatLoading: StateFlow<Boolean> = _isChatLoading.asStateFlow()
 
     companion object {
-        // 香港天文台主要自動氣象站座標表
         private val HKO_STATIONS = listOf(
             HkoStation("香港天文台", 22.3019, 114.1742),
             HkoStation("京士柏", 22.3119, 114.1728),
@@ -170,13 +170,11 @@ class ClockViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             val currentSettings = settings.value
             try {
-                // 預設香港天文台總部座標
                 var lat = 22.3019
                 var lon = 114.1742
                 var resolvedCity = currentSettings.manualCity
 
                 if (currentSettings.useDeviceLocation) {
-                    // 使用低功耗大概定位（Wi-Fi / 流動網絡），室內桌面亦可秒速獲取座標
                     val loc = runCatching {
                         fusedLocationClient.getCurrentLocation(
                             Priority.PRIORITY_BALANCED_POWER_ACCURACY,
@@ -210,27 +208,16 @@ class ClockViewModel(application: Application) : AndroidViewModel(application) {
                 val inHongKong = isInsideHongKong(lat, lon)
 
                 coroutineScope {
-                    // 1. 並行獲取 JMA 每 4 小時預報（若超出東亞覆蓋範圍則自動後備切換 best_match）
-                    val jmaForecastDeferred = async {
+                    val forecastDeferred = async {
                         runCatching {
-                            val jmaResp = NetworkModule.weatherApi.getCurrentWeather(
+                            NetworkModule.weatherApi.getCurrentWeather(
                                 latitude = lat,
                                 longitude = lon,
-                                models = "jma_seamless"
+                                models = "best_match"
                             )
-                            if (extractFourHourlyForecasts(jmaResp.hourly).isNotEmpty()) {
-                                jmaResp
-                            } else {
-                                NetworkModule.weatherApi.getCurrentWeather(
-                                    latitude = lat,
-                                    longitude = lon,
-                                    models = "best_match"
-                                )
-                            }
                         }.getOrNull()
                     }
 
-                    // 2. 若身處香港境內，並行獲取香港天文台分區實測數據
                     val hkoDeferred = if (inHongKong) {
                         async {
                             runCatching {
@@ -241,9 +228,13 @@ class ClockViewModel(application: Application) : AndroidViewModel(application) {
                         null
                     }
 
-                    val openMeteoResp = jmaForecastDeferred.await()
+                    val openMeteoResp = forecastDeferred.await()
                     val hkoResp = hkoDeferred?.await()
-                    val fourHourly = extractFourHourlyForecasts(openMeteoResp?.hourly)
+                    val freshFourHourly = extractFourHourlyForecasts(openMeteoResp?.hourly)
+                    val finalFourHourly = freshFourHourly.ifEmpty { _weather.value.hourlyForecasts }
+                    val hourlySummary = finalFourHourly.take(3).joinToString("  ·  ") {
+                        "${it.timeLabel} ${it.temperatureText}"
+                    }
 
                     val hkoParsed = if (inHongKong && hkoResp != null) {
                         parseNearestHkoStation(lat, lon, hkoResp)
@@ -252,23 +243,43 @@ class ClockViewModel(application: Application) : AndroidViewModel(application) {
                     }
 
                     if (hkoParsed != null) {
-                        // 香港境內：使用天文台最近分區站實測氣溫 + JMA 每 4 小時預報
-                        _weather.value = WeatherUiState(
+                        val updatedState = WeatherUiState(
                             cityName = "${hkoParsed.stationName} · HKO",
                             temperatureText = "${hkoParsed.tempCelsius.roundToInt()}°C",
                             conditionText = hkoParsed.conditionWithHumidity,
                             weatherCode = hkoParsed.wmoEquivalentCode,
-                            hourlyForecasts = fourHourly
+                            hourlyForecasts = finalFourHourly
+                        )
+                        _weather.value = updatedState
+                        FlipClockWidgetProvider.syncFromApp(
+                            context = getApplication(),
+                            city = updatedState.cityName,
+                            temp = updatedState.temperatureText,
+                            condition = updatedState.conditionText,
+                            hourlySummary = hourlySummary,
+                            is24Hour = currentSettings.is24Hour,
+                            lat = lat,
+                            lon = lon
                         )
                     } else if (openMeteoResp?.currentWeather != null) {
-                        // 外地（如日本旅行）或天文台接口暫時無回應：自動無縫使用 JMA / Open-Meteo 實測推算
                         val cw = openMeteoResp.currentWeather
-                        _weather.value = WeatherUiState(
+                        val updatedState = WeatherUiState(
                             cityName = resolvedCity,
                             temperatureText = "${cw.temperature.roundToInt()}°C",
                             conditionText = mapWeatherCodeToText(cw.weathercode),
                             weatherCode = cw.weathercode,
-                            hourlyForecasts = fourHourly
+                            hourlyForecasts = finalFourHourly
+                        )
+                        _weather.value = updatedState
+                        FlipClockWidgetProvider.syncFromApp(
+                            context = getApplication(),
+                            city = updatedState.cityName,
+                            temp = updatedState.temperatureText,
+                            condition = updatedState.conditionText,
+                            hourlySummary = hourlySummary,
+                            is24Hour = currentSettings.is24Hour,
+                            lat = lat,
+                            lon = lon
                         )
                     } else {
                         _weather.value = _weather.value.copy(conditionText = "離線")
@@ -303,7 +314,6 @@ class ClockViewModel(application: Application) : AndroidViewModel(application) {
 
         val readingMap = tempReadings.associate { it.place!! to it.value!! }
 
-        // 從當前有正常讀數嘅天文台自動氣象站之中，搵出距離最近嘅分區站
         val availableStations = HKO_STATIONS.filter { readingMap.containsKey(it.nameTc) }
         val nearestStation = availableStations.minByOrNull { station ->
             val results = FloatArray(1)
@@ -362,7 +372,7 @@ class ClockViewModel(application: Application) : AndroidViewModel(application) {
     private fun extractFourHourlyForecasts(hourly: HourlyWeatherDto?): List<HourlyForecastItem> {
         val times = hourly?.time ?: return emptyList()
         val temps = hourly.temperature2m ?: return emptyList()
-        val codes = hourly.weathercode ?: return emptyList()
+        val codes = hourly.weatherCodeNew ?: hourly.weathercode ?: emptyList()
 
         val currentHour = LocalDateTime.now().truncatedTo(ChronoUnit.HOURS)
         val targetOffsets = listOf(4L, 8L, 12L, 16L, 20L)
@@ -373,8 +383,8 @@ class ClockViewModel(application: Application) : AndroidViewModel(application) {
                 LocalDateTime.parse(times[idx], DateTimeFormatter.ISO_LOCAL_DATE_TIME)
             }.getOrNull()
             val temp = temps.getOrNull(idx)
-            val code = codes.getOrNull(idx)
-            if (dt != null && temp != null && code != null) {
+            val code = codes.getOrNull(idx) ?: 3
+            if (dt != null && temp != null) {
                 Triple(dt, temp, code)
             } else {
                 null
