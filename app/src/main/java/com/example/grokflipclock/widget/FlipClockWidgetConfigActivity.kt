@@ -95,6 +95,7 @@ private fun WidgetConfigScreen(
     var is24Hour by remember { mutableStateOf(initial.is24Hour) }
     var showDate by remember { mutableStateOf(initial.showDate) }
     var showForecast by remember { mutableStateOf(initial.showForecast) }
+    var rowLayoutStyle by remember { mutableStateOf(initial.rowLayoutStyle) }
     var themeStyle by remember { mutableStateOf(initial.themeStyle) }
     var bgAlpha by remember { mutableFloatStateOf(initial.bgAlphaPercent.toFloat()) }
     var fontScale by remember { mutableFloatStateOf(initial.fontScalePercent.toFloat()) }
@@ -115,6 +116,35 @@ private fun WidgetConfigScreen(
             fontWeight = FontWeight.Bold
         )
 
+        // 1. 4x1 橫排佈局選擇
+        Text(text = "4×1 橫排佈局樣式", fontWeight = FontWeight.SemiBold, fontSize = 15.sp)
+
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            FilterChip(
+                selected = rowLayoutStyle == "center",
+                onClick = { rowLayoutStyle = "center" },
+                label = { Text("置中三欄（新 Version）") }
+            )
+            FilterChip(
+                selected = rowLayoutStyle == "left_right",
+                onClick = { rowLayoutStyle = "left_right" },
+                label = { Text("左右並排（左時鐘右天氣）") }
+            )
+        }
+
+        Text(
+            text = if (rowLayoutStyle == "center") {
+                "目前：左邊日期星期 · 中間翻頁時鐘 · 右邊實時及每 4 小時天氣"
+            } else {
+                "目前：左邊翻頁時鐘 · 右邊日期、實時及每 4 小時天氣"
+            },
+            fontSize = 12.sp,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+
+        HorizontalDivider()
+
+        // 2. 天氣地區設定
         Text(text = "天氣地區", fontWeight = FontWeight.SemiBold, fontSize = 15.sp)
 
         Row(
@@ -161,6 +191,7 @@ private fun WidgetConfigScreen(
 
         HorizontalDivider()
 
+        // 3. 顯示內容調教
         Text(text = "顯示項目（不顯示秒數）", fontWeight = FontWeight.SemiBold, fontSize = 15.sp)
 
         Row(
@@ -192,6 +223,7 @@ private fun WidgetConfigScreen(
 
         HorizontalDivider()
 
+        // 4. 外觀與透明度手動微調
         Text(text = "外觀與透明感", fontWeight = FontWeight.SemiBold, fontSize = 15.sp)
 
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -241,6 +273,7 @@ private fun WidgetConfigScreen(
                         is24Hour = is24Hour,
                         showDate = showDate,
                         showForecast = showForecast,
+                        rowLayoutStyle = rowLayoutStyle,
                         themeStyle = themeStyle,
                         bgAlphaPercent = bgAlpha.roundToInt(),
                         fontScalePercent = fontScale.roundToInt()
