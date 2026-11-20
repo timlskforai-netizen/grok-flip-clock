@@ -123,6 +123,7 @@ data class CurrentWeatherDto(
 data class HourlyWeatherDto(
     val time: List<String>?,
     @SerializedName("temperature_2m") val temperature2m: List<Double>?,
+    @SerializedName("weather_code") val weatherCodeNew: List<Int>?,
     val weathercode: List<Int>?
 )
 
@@ -143,8 +144,8 @@ interface WeatherApiService {
         @Query("latitude") latitude: Double,
         @Query("longitude") longitude: Double,
         @Query("current_weather") currentWeather: Boolean = true,
-        @Query("hourly") hourly: String = "temperature_2m,weathercode",
-        @Query("models") models: String = "jma_seamless",
+        @Query("hourly") hourly: String = "temperature_2m,weather_code,weathercode",
+        @Query("models") models: String = "best_match",
         @Query("timezone") timezone: String = "auto",
         @Query("forecast_days") forecastDays: Int = 2
     ): OpenMeteoResponse
