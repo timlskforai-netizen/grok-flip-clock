@@ -436,3 +436,218 @@ class FlipClockWidgetProvider : AppWidgetProvider() {
                 views.setInt(R.id.widget_bg_image, "setImageAlpha", alpha255)
             } else {
                 views.setViewVisibility(R.id.widget_bg_image, View.GONE)
+            }
+
+            views.setImageViewResource(R.id.widget_hour_card_bg, cardDrawable)
+            views.setInt(R.id.widget_hour_card_bg, "setImageAlpha", cardAlpha255)
+            views.setImageViewResource(R.id.widget_min_card_bg, cardDrawable)
+            views.setInt(R.id.widget_min_card_bg, "setImageAlpha", cardAlpha255)
+            views.setImageViewResource(R.id.widget_weather_card_bg, cardDrawable)
+            views.setInt(R.id.widget_weather_card_bg, "setImageAlpha", cardAlpha255)
+
+            if (layoutId == R.layout.widget_flip_clock_row) {
+                views.setImageViewResource(R.id.widget_date_card_bg, cardDrawable)
+                views.setInt(R.id.widget_date_card_bg, "setImageAlpha", cardAlpha255)
+            }
+
+            val primaryTextColor = if (isLight) Color.parseColor("#18181B") else Color.parseColor("#F4F4F5")
+            val secondaryTextColor = if (isLight) Color.parseColor("#52525B") else Color.parseColor("#A1A1AA")
+            val accentColor = if (isLight) Color.parseColor("#0284C7") else Color.parseColor("#38BDF8")
+
+            views.setTextColor(R.id.widget_date, secondaryTextColor)
+            views.setTextColor(R.id.widget_hour, primaryTextColor)
+            views.setTextColor(R.id.widget_minute, primaryTextColor)
+            views.setTextColor(R.id.widget_colon, secondaryTextColor)
+            views.setTextColor(R.id.widget_city, secondaryTextColor)
+            views.setTextColor(R.id.widget_temp, accentColor)
+            views.setTextColor(R.id.widget_condition, primaryTextColor)
+            views.setTextColor(R.id.widget_updated_at, secondaryTextColor)
+            views.setTextColor(R.id.widget_forecast_text, secondaryTextColor)
+            views.setTextColor(R.id.widget_fc_1_time, secondaryTextColor)
+            views.setTextColor(R.id.widget_fc_1_temp, primaryTextColor)
+            views.setTextColor(R.id.widget_fc_2_time, secondaryTextColor)
+            views.setTextColor(R.id.widget_fc_2_temp, primaryTextColor)
+            views.setTextColor(R.id.widget_fc_3_time, secondaryTextColor)
+            views.setTextColor(R.id.widget_fc_3_temp, primaryTextColor)
+
+            val scale = cfg.fontScalePercent / 100f
+            val baseDigitSp = when {
+                is2x1Compact -> 25f
+                layoutId == R.layout.widget_flip_clock_row_lr -> 30f
+                isSingleRowHeight -> 27f
+                else -> 44f
+            }
+            val baseColonSp = when {
+                is2x1Compact -> 18f
+                layoutId == R.layout.widget_flip_clock_row_lr -> 20f
+                isSingleRowHeight -> 18f
+                else -> 32f
+            }
+            views.setTextViewTextSize(R.id.widget_hour, TypedValue.COMPLEX_UNIT_SP, baseDigitSp * scale)
+            views.setTextViewTextSize(R.id.widget_minute, TypedValue.COMPLEX_UNIT_SP, baseDigitSp * scale)
+            views.setTextViewTextSize(R.id.widget_colon, TypedValue.COMPLEX_UNIT_SP, baseColonSp * scale)
+
+            // 設定齒輪可選擇隱藏
+            views.setViewVisibility(
+                R.id.widget_config_btn,
+                if (cfg.showConfigButton) View.VISIBLE else View.GONE
+            )
+
+            // 日期格式（左右並排版顯示在天氣卡頂部，所以帶分隔點「· 」；置中版與大版獨立顯示）
+            if (layoutId == R.layout.widget_flip_clock_row_lr) {
+                val dateFmt = if (cfg.showDate) "M月d日 EEE · " else ""
+                views.setCharSequence(R.id.widget_date, "setFormat12Hour", dateFmt)
+                views.setCharSequence(R.id.widget_date, "setFormat24Hour", dateFmt)
+                views.setViewVisibility(R.id.widget_date, if (cfg.showDate) View.VISIBLE else View.GONE)
+            } else {
+                val showDateNow = cfg.showDate && !is2x1Compact
+                views.setViewVisibility(R.id.widget_date, if (showDateNow) View.VISIBLE else View.GONE)
+            }
+
+            val hourFormat = if (cfg.is24Hour) "HH" else "hh"
+            views.setCharSequence(R.id.widget_hour, "setFormat12Hour", hourFormat)
+            views.setCharSequence(R.id.widget_hour, "setFormat24Hour", hourFormat)
+
+            views.setTextViewText(R.id.widget_weather_icon, iconEmoji)
+            views.setTextViewText(R.id.widget_city, displayCity)
+            views.setTextViewText(R.id.widget_temp, temp)
+            views.setTextViewText(R.id.widget_condition, condition)
+            views.setViewVisibility(R.id.widget_condition, View.VISIBLE)
+
+            if (!is2x1Compact && updatedAt.isNotBlank()) {
+                views.setTextViewText(R.id.widget_updated_at, updatedAt)
+                views.setViewVisibility(R.id.widget_updated_at, View.VISIBLE)
+            } else {
+                views.setViewVisibility(R.id.widget_updated_at, View.GONE)
+            }
+
+            // 未來每 4 小時預報
+            val canShowForecast = cfg.showForecast && summary.isNotBlank() && !is2x1Compact
+            if (canShowForecast) {
+                if (layoutId == R.layout.widget_flip_clock_row) {
+                    views.setTextViewText(R.id.widget_forecast_text, summary)
+                    views.setViewVisibility(R.id.widget_forecast_text, View.VISIBLE)
+                    views.setViewVisibility(R.id.widget_forecast_grid, View.GONE)
+                } else {
+                    val parts = summary.split("·").map { it.trim() }.filter { it.isNotEmpty() }
+                    val slot1 = parts.getOrNull(0)?.split(" ")
+                    val slot2 = parts.getOrNull(1)?.split(" ")
+                    val slot3 = parts.getOrNull(2)?.split(" ")
+
+                    views.setTextViewText(R.id.widget_fc_1_time, slot1?.getOrNull(0) ?: "--:--")
+                    views.setTextViewText(R.id.widget_fc_1_temp, slot1?.getOrNull(1) ?: "--°")
+                    views.setTextViewText(R.id.widget_fc_2_time, slot2?.getOrNull(0) ?: "--:--")
+                    views.setTextViewText(R.id.widget_fc_2_temp, slot2?.getOrNull(1) ?: "--°")
+                    views.setTextViewText(R.id.widget_fc_3_time, slot3?.getOrNull(0) ?: "--:--")
+                    views.setTextViewText(R.id.widget_fc_3_temp, slot3?.getOrNull(1) ?: "--°")
+
+                    views.setViewVisibility(R.id.widget_forecast_grid, View.VISIBLE)
+                    views.setViewVisibility(R.id.widget_forecast_text, View.GONE)
+                }
+            } else {
+                views.setViewVisibility(R.id.widget_forecast_grid, View.GONE)
+                views.setViewVisibility(R.id.widget_forecast_text, View.GONE)
+            }
+
+            val openAppIntent = Intent(context, MainActivity::class.java)
+            val openAppPending = PendingIntent.getActivity(
+                context,
+                appWidgetId * 10 + 1,
+                openAppIntent,
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            )
+            views.setOnClickPendingIntent(R.id.widget_clock_container, openAppPending)
+
+            val refreshIntent = Intent(context, FlipClockWidgetProvider::class.java).apply {
+                action = ACTION_REFRESH_WEATHER
+            }
+            val refreshPending = PendingIntent.getBroadcast(
+                context,
+                appWidgetId * 10 + 2,
+                refreshIntent,
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            )
+            views.setOnClickPendingIntent(R.id.widget_weather_bar, refreshPending)
+
+            val configIntent = Intent(context, FlipClockWidgetConfigActivity::class.java).apply {
+                putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, appWidgetId)
+            }
+            val configPending = PendingIntent.getActivity(
+                context,
+                appWidgetId * 10 + 3,
+                configIntent,
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            )
+            views.setOnClickPendingIntent(R.id.widget_config_btn, configPending)
+
+            manager.updateAppWidget(appWidgetId, views)
+        }
+
+        private fun mapHkoIcon(icon: Int): String = when (icon) {
+            50 -> "陽光充沛"
+            51 -> "間有陽光"
+            52 -> "短暫陽光"
+            53, 54 -> "驟雨"
+            60, 61 -> "多雲"
+            62 -> "微雨"
+            63, 64 -> "有雨"
+            65 -> "雷暴"
+            70, 71, 72, 73, 74, 75, 77 -> "天色良好"
+            76 -> "大致多雲"
+            80 -> "大風"
+            81 -> "乾燥"
+            82 -> "潮濕"
+            83, 84, 85 -> "有霧"
+            90, 91 -> "炎熱"
+            92, 93 -> "清涼"
+            else -> "多雲"
+        }
+
+        private fun mapHkoEmoji(icon: Int): String = when (icon) {
+            50, 70, 71, 72, 73, 74, 75, 77 -> "☀️"
+            51, 52 -> "🌤️"
+            53, 54, 62 -> "🌦️"
+            63, 64 -> "🌧️"
+            65 -> "⛈️"
+            80 -> "💨"
+            83, 84, 85 -> "🌫️"
+            else -> "☁️"
+        }
+
+        private fun mapWmoCode(code: Int): String = when (code) {
+            0 -> "晴朗"
+            1, 2 -> "大致天晴"
+            3 -> "多雲"
+            45, 48 -> "有霧"
+            51, 53, 55 -> "毛毛雨"
+            61, 63, 65 -> "有雨"
+            71, 73, 75, 77 -> "降雪"
+            80, 81, 82 -> "驟雨"
+            95, 96, 99 -> "雷暴"
+            else -> "多雲"
+        }
+
+        private fun mapWmoEmoji(code: Int): String = when (code) {
+            0 -> "☀️"
+            1, 2 -> "🌤️"
+            3 -> "☁️"
+            45, 48 -> "🌫️"
+            51, 53, 55, 80, 81, 82 -> "🌦️"
+            61, 63, 65 -> "🌧️"
+            71, 73, 75, 77 -> "❄️"
+            95, 96, 99 -> "⛈️"
+            else -> "☁️"
+        }
+
+        private fun inferEmojiFromCondition(condition: String): String = when {
+            condition.contains("雷") -> "⛈️"
+            condition.contains("驟雨") || condition.contains("微雨") -> "🌦️"
+            condition.contains("雨") -> "🌧️"
+            condition.contains("雪") -> "❄️"
+            condition.contains("霧") -> "🌫️"
+            condition.contains("陽光") || condition.contains("天晴") -> "🌤️"
+            condition.contains("晴") || condition.contains("良好") -> "☀️"
+            else -> "☁️"
+        }
+    }
+}
