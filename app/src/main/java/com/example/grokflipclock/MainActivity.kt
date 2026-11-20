@@ -33,7 +33,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.unit.dp
@@ -69,19 +68,13 @@ class MainActivity : ComponentActivity() {
             var isFullscreen by remember { mutableStateOf(true) }
             var showSettingsDialog by remember { mutableStateOf(false) }
 
-            // null 代表跟隨系統（非分割畫面顯示、分割畫面自動隱藏）；true/false 代表人手手動指定
-            var userAiPanelOverride by remember { mutableStateOf<Boolean?>(null) }
+            // 預設關閉內置 AI Chatbot，需人手按右上角 ✨ 先會打開
+            var showAiPanel by remember { mutableStateOf(false) }
 
             val focusManager = LocalFocusManager.current
             val keyboardController = LocalSoftwareKeyboardController.current
 
-            val configuration = LocalConfiguration.current
-            val isInSplitScreen = remember(configuration) {
-                this@MainActivity.isInMultiWindowMode
-            }
-            val showAiPanel = userAiPanelOverride ?: !isInSplitScreen
-
-            LaunchedEffect(showAiPanel, isInSplitScreen) {
+            LaunchedEffect(showAiPanel) {
                 focusManager.clearFocus(force = true)
                 keyboardController?.hide()
             }
@@ -127,7 +120,7 @@ class MainActivity : ComponentActivity() {
                             weather = weather,
                             isFullscreen = isFullscreen,
                             showAiPanel = false,
-                            onToggleAiPanel = { userAiPanelOverride = true },
+                            onToggleAiPanel = { showAiPanel = true },
                             onToggleTheme = { viewModel.toggleTheme() },
                             onToggleFullscreen = { isFullscreen = !isFullscreen },
                             onOpenSettings = { showSettingsDialog = true },
@@ -142,7 +135,7 @@ class MainActivity : ComponentActivity() {
                                 weather = weather,
                                 isFullscreen = isFullscreen,
                                 showAiPanel = true,
-                                onToggleAiPanel = { userAiPanelOverride = false },
+                                onToggleAiPanel = { showAiPanel = false },
                                 onToggleTheme = { viewModel.toggleTheme() },
                                 onToggleFullscreen = { isFullscreen = !isFullscreen },
                                 onOpenSettings = { showSettingsDialog = true },
@@ -178,7 +171,7 @@ class MainActivity : ComponentActivity() {
                                 )
 
                                 IconButton(
-                                    onClick = { userAiPanelOverride = false },
+                                    onClick = { showAiPanel = false },
                                     modifier = Modifier
                                         .align(Alignment.TopEnd)
                                         .padding(6.dp)
@@ -202,7 +195,7 @@ class MainActivity : ComponentActivity() {
                                 weather = weather,
                                 isFullscreen = isFullscreen,
                                 showAiPanel = true,
-                                onToggleAiPanel = { userAiPanelOverride = false },
+                                onToggleAiPanel = { showAiPanel = false },
                                 onToggleTheme = { viewModel.toggleTheme() },
                                 onToggleFullscreen = { isFullscreen = !isFullscreen },
                                 onOpenSettings = { showSettingsDialog = true },
@@ -238,7 +231,7 @@ class MainActivity : ComponentActivity() {
                                 )
 
                                 IconButton(
-                                    onClick = { userAiPanelOverride = false },
+                                    onClick = { showAiPanel = false },
                                     modifier = Modifier
                                         .align(Alignment.TopEnd)
                                         .padding(6.dp)
