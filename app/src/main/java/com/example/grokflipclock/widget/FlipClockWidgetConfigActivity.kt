@@ -96,6 +96,8 @@ private fun WidgetConfigScreen(
     var showDate by remember { mutableStateOf(initial.showDate) }
     var showForecast by remember { mutableStateOf(initial.showForecast) }
     var rowLayoutStyle by remember { mutableStateOf(initial.rowLayoutStyle) }
+    var showOuterFrame by remember { mutableStateOf(initial.showOuterFrame) }
+    var showConfigButton by remember { mutableStateOf(initial.showConfigButton) }
     var themeStyle by remember { mutableStateOf(initial.themeStyle) }
     var bgAlpha by remember { mutableFloatStateOf(initial.bgAlphaPercent.toFloat()) }
     var fontScale by remember { mutableFloatStateOf(initial.fontScalePercent.toFloat()) }
@@ -121,26 +123,16 @@ private fun WidgetConfigScreen(
 
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             FilterChip(
-                selected = rowLayoutStyle == "center",
-                onClick = { rowLayoutStyle = "center" },
-                label = { Text("置中三欄（新 Version）") }
-            )
-            FilterChip(
                 selected = rowLayoutStyle == "left_right",
                 onClick = { rowLayoutStyle = "left_right" },
                 label = { Text("左右並排（左時鐘右天氣）") }
             )
+            FilterChip(
+                selected = rowLayoutStyle == "center",
+                onClick = { rowLayoutStyle = "center" },
+                label = { Text("置中三欄（時鐘置中）") }
+            )
         }
-
-        Text(
-            text = if (rowLayoutStyle == "center") {
-                "目前：左邊日期星期 · 中間翻頁時鐘 · 右邊實時及每 4 小時天氣"
-            } else {
-                "目前：左邊翻頁時鐘 · 右邊日期、實時及每 4 小時天氣"
-            },
-            fontSize = 12.sp,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
-        )
 
         HorizontalDivider()
 
@@ -170,7 +162,7 @@ private fun WidgetConfigScreen(
             OutlinedTextField(
                 value = manualQuery,
                 onValueChange = { manualQuery = it },
-                label = { Text("輸入香港分區（如：大埔、沙田）或城市（如：Tokyo）") },
+                label = { Text("輸入香港分區（如：大埔、觀塘）或城市（如：Tokyo）") },
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth()
             )
@@ -223,8 +215,40 @@ private fun WidgetConfigScreen(
 
         HorizontalDivider()
 
-        // 4. 外觀與透明度手動微調
-        Text(text = "外觀與透明感", fontWeight = FontWeight.SemiBold, fontSize = 15.sp)
+        // 4. 外觀與懸浮無框設定
+        Text(text = "外觀與無外框懸浮", fontWeight = FontWeight.SemiBold, fontSize = 15.sp)
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text("顯示外層大框")
+                Text(
+                    text = if (showOuterFrame) "開啟：整組 Widget 帶有半透明外框" else "關閉：純卡片直接懸浮於桌面壁紙上",
+                    fontSize = 12.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            Switch(checked = showOuterFrame, onCheckedChange = { showOuterFrame = it })
+        }
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text("顯示右上角設定齒輪（⚙）")
+                Text(
+                    text = "關閉後畫面更乾淨，長按 Widget 揀「設定」仍可隨時修改",
+                    fontSize = 12.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            Switch(checked = showConfigButton, onCheckedChange = { showConfigButton = it })
+        }
 
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             FilterChip(
@@ -245,7 +269,7 @@ private fun WidgetConfigScreen(
         }
 
         Column {
-            Text("背景透明度：${bgAlpha.roundToInt()}%（設為 0% 即全透明無底框）", fontSize = 13.sp)
+            Text("背景與卡片透明度：${bgAlpha.roundToInt()}%", fontSize = 13.sp)
             Slider(
                 value = bgAlpha,
                 onValueChange = { bgAlpha = it },
@@ -274,6 +298,8 @@ private fun WidgetConfigScreen(
                         showDate = showDate,
                         showForecast = showForecast,
                         rowLayoutStyle = rowLayoutStyle,
+                        showOuterFrame = showOuterFrame,
+                        showConfigButton = showConfigButton,
                         themeStyle = themeStyle,
                         bgAlphaPercent = bgAlpha.roundToInt(),
                         fontScalePercent = fontScale.roundToInt()
