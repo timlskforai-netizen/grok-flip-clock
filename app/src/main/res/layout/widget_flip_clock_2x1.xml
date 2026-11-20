@@ -41,7 +41,6 @@
             android:textSize="9.5sp"
             android:visibility="gone" />
 
-        <!-- 緊湊雙卡片時鐘（時 : 分） -->
         <LinearLayout
             android:id="@+id/widget_clock_container"
             android:layout_width="wrap_content"
@@ -50,8 +49,8 @@
             android:orientation="horizontal">
 
             <FrameLayout
-                android:layout_width="48dp"
-                android:layout_height="42dp">
+                android:layout_width="50dp"
+                android:layout_height="44dp">
 
                 <ImageView
                     android:id="@+id/widget_hour_card_bg"
@@ -70,7 +69,7 @@
                     android:gravity="center"
                     android:includeFontPadding="false"
                     android:textColor="#FFF4F4F5"
-                    android:textSize="24sp"
+                    android:textSize="25sp"
                     android:textStyle="bold" />
 
                 <ImageView
@@ -94,8 +93,8 @@
                 android:textStyle="bold" />
 
             <FrameLayout
-                android:layout_width="48dp"
-                android:layout_height="42dp">
+                android:layout_width="50dp"
+                android:layout_height="44dp">
 
                 <ImageView
                     android:id="@+id/widget_min_card_bg"
@@ -114,7 +113,7 @@
                     android:gravity="center"
                     android:includeFontPadding="false"
                     android:textColor="#FFF4F4F5"
-                    android:textSize="24sp"
+                    android:textSize="25sp"
                     android:textStyle="bold" />
 
                 <ImageView
@@ -126,7 +125,6 @@
             </FrameLayout>
         </LinearLayout>
 
-        <!-- 底部單行天氣膠囊 -->
         <FrameLayout
             android:id="@+id/widget_weather_bar"
             android:layout_width="wrap_content"
@@ -152,9 +150,18 @@
                 android:paddingBottom="3dp">
 
                 <TextView
+                    android:id="@+id/widget_weather_icon"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:includeFontPadding="false"
+                    android:text="☁️"
+                    android:textSize="10.5sp" />
+
+                <TextView
                     android:id="@+id/widget_city"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
+                    android:layout_marginStart="3dp"
                     android:ellipsize="end"
                     android:includeFontPadding="false"
                     android:maxLines="1"
@@ -171,7 +178,7 @@
                     android:includeFontPadding="false"
                     android:text="--°C"
                     android:textColor="#FF38BDF8"
-                    android:textSize="10.5sp"
+                    android:textSize="11sp"
                     android:textStyle="bold" />
 
                 <TextView
@@ -187,11 +194,30 @@
                     android:textSize="9.5sp" />
 
                 <TextView
+                    android:id="@+id/widget_updated_at"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:visibility="gone" />
+
+                <TextView
                     android:id="@+id/widget_forecast_text"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:text=""
                     android:visibility="gone" />
+
+                <LinearLayout
+                    android:id="@+id/widget_forecast_grid"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:visibility="gone">
+
+                    <TextView android:id="@+id/widget_fc_1_time" android:layout_width="wrap_content" android:layout_height="wrap_content" />
+                    <TextView android:id="@+id/widget_fc_1_temp" android:layout_width="wrap_content" android:layout_height="wrap_content" />
+                    <TextView android:id="@+id/widget_fc_2_time" android:layout_width="wrap_content" android:layout_height="wrap_content" />
+                    <TextView android:id="@+id/widget_fc_2_temp" android:layout_width="wrap_content" android:layout_height="wrap_content" />
+                    <TextView android:id="@+id/widget_fc_3_time" android:layout_width="wrap_content" android:layout_height="wrap_content" />
+                    <TextView android:id="@+id/widget_fc_3_temp" android:layout_width="wrap_content" android:layout_height="wrap_content" />
+                </LinearLayout>
             </LinearLayout>
         </FrameLayout>
 
