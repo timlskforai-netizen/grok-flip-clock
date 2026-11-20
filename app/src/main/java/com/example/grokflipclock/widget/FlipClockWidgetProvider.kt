@@ -304,7 +304,7 @@ class FlipClockWidgetProvider : AppWidgetProvider() {
                 slots.firstOrNull { it.first == target }?.let { (dt, temp) ->
                     "${dt.format(fmt)} ${temp.roundToInt()}°"
                 }
-            }.joinToString("  ·  ")
+            }.joinToString(" · ")
         }
 
         private fun updateSingleWidget(
@@ -318,7 +318,6 @@ class FlipClockWidgetProvider : AppWidgetProvider() {
             val options = manager.getAppWidgetOptions(appWidgetId)
             val isLandscape = context.resources.configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
 
-            // 直度螢幕時，實際寬度係 MIN_WIDTH，實際高度係 MAX_HEIGHT（Samsung One UI 1格約 115dp，2格約 240dp）
             val actualWidthDp = if (isLandscape) {
                 options.getInt(AppWidgetManager.OPTION_APPWIDGET_MAX_WIDTH, 320)
             } else {
@@ -331,7 +330,6 @@ class FlipClockWidgetProvider : AppWidgetProvider() {
                 if (maxH > 0) maxH else options.getInt(AppWidgetManager.OPTION_APPWIDGET_MIN_HEIGHT, 120)
             }
 
-            // 高度低於 165dp 屬於單行高度（包含 Samsung One UI 115dp 的 2x1 與 4x1）
             val isSingleRowHeight = actualHeightDp in 1..164
             val is2x1Compact = isSingleRowHeight && actualWidthDp in 1..225
 
@@ -351,7 +349,8 @@ class FlipClockWidgetProvider : AppWidgetProvider() {
             } else {
                 prefs.getString("data_${appWidgetId}_city", fallbackCity) ?: fallbackCity
             }
-            val displayCity = if (is2x1Compact) rawCity.substringBefore(" · ") else rawCity
+            // 單行模式（2x1 / 4x1）精簡顯示地區名（例如「大埔」），4x2+ 顯示完整「大埔 · HKO」
+            val displayCity = if (isSingleRowHeight) rawCity.substringBefore(" · ") else rawCity
             val temp = prefs.getString("data_${appWidgetId}_temp", fallbackTemp) ?: fallbackTemp
             val condition = prefs.getString("data_${appWidgetId}_cond", fallbackCond) ?: fallbackCond
             val summary = prefs.getString("data_${appWidgetId}_summary", fallbackSummary) ?: fallbackSummary
@@ -378,6 +377,11 @@ class FlipClockWidgetProvider : AppWidgetProvider() {
             views.setImageViewResource(R.id.widget_weather_card_bg, cardDrawable)
             views.setInt(R.id.widget_weather_card_bg, "setImageAlpha", cardAlpha255)
 
+            if (isSingleRowHeight && !is2x1Compact) {
+                views.setImageViewResource(R.id.widget_date_card_bg, cardDrawable)
+                views.setInt(R.id.widget_date_card_bg, "setImageAlpha", cardAlpha255)
+            }
+
             val primaryTextColor = if (isLight) Color.parseColor("#18181B") else Color.parseColor("#F4F4F5")
             val secondaryTextColor = if (isLight) Color.parseColor("#52525B") else Color.parseColor("#A1A1AA")
             val accentColor = if (isLight) Color.parseColor("#0284C7") else Color.parseColor("#38BDF8")
@@ -394,12 +398,12 @@ class FlipClockWidgetProvider : AppWidgetProvider() {
             val scale = cfg.fontScalePercent / 100f
             val baseDigitSp = when {
                 is2x1Compact -> 24f
-                isSingleRowHeight -> 28f
+                isSingleRowHeight -> 26f
                 else -> 42f
             }
             val baseColonSp = when {
                 is2x1Compact -> 18f
-                isSingleRowHeight -> 20f
+                isSingleRowHeight -> 18f
                 else -> 30f
             }
             views.setTextViewTextSize(R.id.widget_hour, TypedValue.COMPLEX_UNIT_SP, baseDigitSp * scale)
@@ -420,7 +424,6 @@ class FlipClockWidgetProvider : AppWidgetProvider() {
             views.setTextViewText(R.id.widget_condition, condition)
             views.setViewVisibility(R.id.widget_condition, View.VISIBLE)
 
-            // 4x1 及 4x2+ 皆顯示未來每 4 小時預報，僅 2x1 細格隱藏
             val canShowForecast = cfg.showForecast && summary.isNotBlank() && !is2x1Compact
             if (canShowForecast) {
                 views.setTextViewText(R.id.widget_forecast_text, summary)
