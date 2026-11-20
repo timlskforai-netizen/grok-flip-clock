@@ -356,7 +356,7 @@ class FlipClockWidgetProvider : AppWidgetProvider() {
             return offsets.mapNotNull { off ->
                 val target = currentHour.plusHours(off)
                 slots.firstOrNull { it.first == target }?.let { (dt, temp) ->
-                    "${dt.format(fmt)}${temp.roundToInt()}°"
+                    "${dt.format(fmt)} ${temp.roundToInt()}°"
                 }
             }.joinToString(" · ")
         }
