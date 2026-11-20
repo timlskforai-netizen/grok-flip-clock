@@ -22,7 +22,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.AutoAwesome
+import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.runtime.LaunchedEffect
@@ -33,8 +33,9 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.unit.dp
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
@@ -53,6 +54,7 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
 
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        window.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_STATE_ALWAYS_HIDDEN)
         WindowCompat.setDecorFitsSystemWindows(window, false)
 
         setContent {
@@ -66,14 +68,23 @@ class MainActivity : ComponentActivity() {
 
             var isFullscreen by remember { mutableStateOf(true) }
             var showSettingsDialog by remember { mutableStateOf(false) }
-            var manualHideAiPanel by remember { mutableStateOf(false) }
 
-            // 偵測系統是否處於分割畫面 / 多重視窗模式
+            // null 代表跟隨系統（非分割畫面顯示、分割畫面自動隱藏）；true/false 代表人手手動指定
+            var userAiPanelOverride by remember { mutableStateOf<Boolean?>(null) }
+
+            val focusManager = LocalFocusManager.current
+            val keyboardController = LocalSoftwareKeyboardController.current
+
             val configuration = LocalConfiguration.current
             val isInSplitScreen = remember(configuration) {
                 this@MainActivity.isInMultiWindowMode
             }
-            val showAiPanel = !isInSplitScreen && !manualHideAiPanel
+            val showAiPanel = userAiPanelOverride ?: !isInSplitScreen
+
+            LaunchedEffect(showAiPanel, isInSplitScreen) {
+                focusManager.clearFocus(force = true)
+                keyboardController?.hide()
+            }
 
             val locationPermissionLauncher = rememberLauncherForActivityResult(
                 contract = ActivityResultContracts.RequestPermission()
@@ -110,74 +121,36 @@ class MainActivity : ComponentActivity() {
                     val isLandscape = maxWidth >= maxHeight
 
                     if (!showAiPanel) {
-                        // 純時鐘模式（進入系統分割畫面時自動啟用，佔滿整個 70% 視窗）
-                        Box(modifier = Modifier.fillMaxSize()) {
+                        FlipClockPanel(
+                            now = now,
+                            is24Hour = settings.is24Hour,
+                            weather = weather,
+                            isFullscreen = isFullscreen,
+                            showAiPanel = false,
+                            onToggleAiPanel = { userAiPanelOverride = true },
+                            onToggleTheme = { viewModel.toggleTheme() },
+                            onToggleFullscreen = { isFullscreen = !isFullscreen },
+                            onOpenSettings = { showSettingsDialog = true },
+                            onRefreshWeather = { viewModel.refreshWeather() },
+                            modifier = Modifier.fillMaxSize()
+                        )
+                    } else if (isLandscape) {
+                        Row(modifier = Modifier.fillMaxSize()) {
                             FlipClockPanel(
                                 now = now,
                                 is24Hour = settings.is24Hour,
                                 weather = weather,
                                 isFullscreen = isFullscreen,
+                                showAiPanel = true,
+                                onToggleAiPanel = { userAiPanelOverride = false },
                                 onToggleTheme = { viewModel.toggleTheme() },
                                 onToggleFullscreen = { isFullscreen = !isFullscreen },
                                 onOpenSettings = { showSettingsDialog = true },
-                                modifier = Modifier.fillMaxSize()
-                            )
-
-                            // 非分割畫面時保留一個低調按鈕，方便手動切換顯示內置 AI 面板
-                            if (!isInSplitScreen) {
-                                IconButton(
-                                    onClick = { manualHideAiPanel = !manualHideAiPanel },
-                                    modifier = Modifier
-                                        .align(Alignment.BottomEnd)
-                                        .padding(12.dp)
-                                        .size(32.dp)
-                                        .alpha(0.35f)
-                                        .background(palette.cardBackground, CircleShape)
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Rounded.AutoAwesome,
-                                        contentDescription = "顯示/隱藏內置 AI 面板",
-                                        tint = palette.secondaryText,
-                                        modifier = Modifier.size(16.dp)
-                                    )
-                                }
-                            }
-                        }
-                    } else if (isLandscape) {
-                        Row(modifier = Modifier.fillMaxSize()) {
-                            Box(
+                                onRefreshWeather = { viewModel.refreshWeather() },
                                 modifier = Modifier
                                     .weight(0.7f)
                                     .fillMaxHeight()
-                            ) {
-                                FlipClockPanel(
-                                    now = now,
-                                    is24Hour = settings.is24Hour,
-                                    weather = weather,
-                                    isFullscreen = isFullscreen,
-                                    onToggleTheme = { viewModel.toggleTheme() },
-                                    onToggleFullscreen = { isFullscreen = !isFullscreen },
-                                    onOpenSettings = { showSettingsDialog = true },
-                                    modifier = Modifier.fillMaxSize()
-                                )
-
-                                IconButton(
-                                    onClick = { manualHideAiPanel = true },
-                                    modifier = Modifier
-                                        .align(Alignment.BottomEnd)
-                                        .padding(12.dp)
-                                        .size(32.dp)
-                                        .alpha(0.35f)
-                                        .background(palette.cardBackground, CircleShape)
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Rounded.AutoAwesome,
-                                        contentDescription = "隱藏內置 AI 面板",
-                                        tint = palette.secondaryText,
-                                        modifier = Modifier.size(16.dp)
-                                    )
-                                }
-                            }
+                            )
 
                             Box(
                                 modifier = Modifier
@@ -186,56 +159,58 @@ class MainActivity : ComponentActivity() {
                                     .background(palette.divider)
                             )
 
-                            GrokPanel(
-                                providerLabel = settings.aiProvider.shortName,
-                                ambientNote = settings.ambientNote,
-                                isAmbientLoading = isAmbientLoading,
-                                messages = messages,
-                                isChatLoading = isChatLoading,
-                                hasApiKey = settings.activeApiKey.isNotBlank(),
-                                onRefreshAmbient = { viewModel.refreshAmbientNote() },
-                                onSendMessage = { viewModel.sendChatMessage(it) },
-                                onClearHistory = { viewModel.clearChatHistory() },
+                            Box(
                                 modifier = Modifier
                                     .weight(0.3f)
                                     .fillMaxHeight()
-                            )
-                        }
-                    } else {
-                        Column(modifier = Modifier.fillMaxSize()) {
-                            Box(
-                                modifier = Modifier
-                                    .weight(0.7f)
-                                    .fillMaxWidth()
                             ) {
-                                FlipClockPanel(
-                                    now = now,
-                                    is24Hour = settings.is24Hour,
-                                    weather = weather,
-                                    isFullscreen = isFullscreen,
-                                    onToggleTheme = { viewModel.toggleTheme() },
-                                    onToggleFullscreen = { isFullscreen = !isFullscreen },
-                                    onOpenSettings = { showSettingsDialog = true },
+                                GrokPanel(
+                                    providerLabel = settings.aiProvider.shortName,
+                                    ambientNote = settings.ambientNote,
+                                    isAmbientLoading = isAmbientLoading,
+                                    messages = messages,
+                                    isChatLoading = isChatLoading,
+                                    hasApiKey = settings.activeApiKey.isNotBlank(),
+                                    onRefreshAmbient = { viewModel.refreshAmbientNote() },
+                                    onSendMessage = { viewModel.sendChatMessage(it) },
+                                    onClearHistory = { viewModel.clearChatHistory() },
                                     modifier = Modifier.fillMaxSize()
                                 )
 
                                 IconButton(
-                                    onClick = { manualHideAiPanel = true },
+                                    onClick = { userAiPanelOverride = false },
                                     modifier = Modifier
-                                        .align(Alignment.BottomEnd)
-                                        .padding(12.dp)
-                                        .size(32.dp)
-                                        .alpha(0.35f)
-                                        .background(palette.cardBackground, CircleShape)
+                                        .align(Alignment.TopEnd)
+                                        .padding(6.dp)
+                                        .size(28.dp)
+                                        .background(palette.cardBackground.copy(alpha = 0.85f), CircleShape)
                                 ) {
                                     Icon(
-                                        imageVector = Icons.Rounded.AutoAwesome,
-                                        contentDescription = "隱藏內置 AI 面板",
+                                        imageVector = Icons.Rounded.Close,
+                                        contentDescription = "關閉 AI 面板",
                                         tint = palette.secondaryText,
                                         modifier = Modifier.size(16.dp)
                                     )
                                 }
                             }
+                        }
+                    } else {
+                        Column(modifier = Modifier.fillMaxSize()) {
+                            FlipClockPanel(
+                                now = now,
+                                is24Hour = settings.is24Hour,
+                                weather = weather,
+                                isFullscreen = isFullscreen,
+                                showAiPanel = true,
+                                onToggleAiPanel = { userAiPanelOverride = false },
+                                onToggleTheme = { viewModel.toggleTheme() },
+                                onToggleFullscreen = { isFullscreen = !isFullscreen },
+                                onOpenSettings = { showSettingsDialog = true },
+                                onRefreshWeather = { viewModel.refreshWeather() },
+                                modifier = Modifier
+                                    .weight(0.7f)
+                                    .fillMaxWidth()
+                            )
 
                             Box(
                                 modifier = Modifier
@@ -244,20 +219,40 @@ class MainActivity : ComponentActivity() {
                                     .background(palette.divider)
                             )
 
-                            GrokPanel(
-                                providerLabel = settings.aiProvider.shortName,
-                                ambientNote = settings.ambientNote,
-                                isAmbientLoading = isAmbientLoading,
-                                messages = messages,
-                                isChatLoading = isChatLoading,
-                                hasApiKey = settings.activeApiKey.isNotBlank(),
-                                onRefreshAmbient = { viewModel.refreshAmbientNote() },
-                                onSendMessage = { viewModel.sendChatMessage(it) },
-                                onClearHistory = { viewModel.clearChatHistory() },
+                            Box(
                                 modifier = Modifier
                                     .weight(0.3f)
                                     .fillMaxWidth()
-                            )
+                            ) {
+                                GrokPanel(
+                                    providerLabel = settings.aiProvider.shortName,
+                                    ambientNote = settings.ambientNote,
+                                    isAmbientLoading = isAmbientLoading,
+                                    messages = messages,
+                                    isChatLoading = isChatLoading,
+                                    hasApiKey = settings.activeApiKey.isNotBlank(),
+                                    onRefreshAmbient = { viewModel.refreshAmbientNote() },
+                                    onSendMessage = { viewModel.sendChatMessage(it) },
+                                    onClearHistory = { viewModel.clearChatHistory() },
+                                    modifier = Modifier.fillMaxSize()
+                                )
+
+                                IconButton(
+                                    onClick = { userAiPanelOverride = false },
+                                    modifier = Modifier
+                                        .align(Alignment.TopEnd)
+                                        .padding(6.dp)
+                                        .size(28.dp)
+                                        .background(palette.cardBackground.copy(alpha = 0.85f), CircleShape)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Rounded.Close,
+                                        contentDescription = "關閉 AI 面板",
+                                        tint = palette.secondaryText,
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                }
+                            }
                         }
                     }
 
