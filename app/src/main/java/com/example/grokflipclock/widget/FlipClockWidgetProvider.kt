@@ -31,6 +31,7 @@ data class WidgetManualConfig(
     val is24Hour: Boolean = true,
     val showDate: Boolean = true,
     val showForecast: Boolean = true,
+    val rowLayoutStyle: String = "center", // "center"（置中三欄） 或 "left_right"（左右並排）
     val themeStyle: String = "dark",
     val bgAlphaPercent: Int = 90,
     val fontScalePercent: Int = 100
@@ -75,6 +76,7 @@ class FlipClockWidgetProvider : AppWidgetProvider() {
                 .remove("cfg_${id}_24h")
                 .remove("cfg_${id}_date")
                 .remove("cfg_${id}_forecast")
+                .remove("cfg_${id}_row_style")
                 .remove("cfg_${id}_theme")
                 .remove("cfg_${id}_alpha")
                 .remove("cfg_${id}_scale")
@@ -136,6 +138,7 @@ class FlipClockWidgetProvider : AppWidgetProvider() {
                 is24Hour = prefs.getBoolean("cfg_${appWidgetId}_24h", global24h),
                 showDate = prefs.getBoolean("cfg_${appWidgetId}_date", true),
                 showForecast = prefs.getBoolean("cfg_${appWidgetId}_forecast", true),
+                rowLayoutStyle = prefs.getString("cfg_${appWidgetId}_row_style", "center") ?: "center",
                 themeStyle = prefs.getString("cfg_${appWidgetId}_theme", "dark") ?: "dark",
                 bgAlphaPercent = prefs.getInt("cfg_${appWidgetId}_alpha", 90),
                 fontScalePercent = prefs.getInt("cfg_${appWidgetId}_scale", 100)
@@ -149,6 +152,7 @@ class FlipClockWidgetProvider : AppWidgetProvider() {
                 .putBoolean("cfg_${appWidgetId}_24h", config.is24Hour)
                 .putBoolean("cfg_${appWidgetId}_date", config.showDate)
                 .putBoolean("cfg_${appWidgetId}_forecast", config.showForecast)
+                .putString("cfg_${appWidgetId}_row_style", config.rowLayoutStyle)
                 .putString("cfg_${appWidgetId}_theme", config.themeStyle)
                 .putInt("cfg_${appWidgetId}_alpha", config.bgAlphaPercent.coerceIn(0, 100))
                 .putInt("cfg_${appWidgetId}_scale", config.fontScalePercent.coerceIn(80, 130))
@@ -335,6 +339,7 @@ class FlipClockWidgetProvider : AppWidgetProvider() {
 
             val layoutId = when {
                 is2x1Compact -> R.layout.widget_flip_clock_2x1
+                isSingleRowHeight && cfg.rowLayoutStyle == "left_right" -> R.layout.widget_flip_clock_row_lr
                 isSingleRowHeight -> R.layout.widget_flip_clock_row
                 else -> R.layout.widget_flip_clock
             }
@@ -349,7 +354,6 @@ class FlipClockWidgetProvider : AppWidgetProvider() {
             } else {
                 prefs.getString("data_${appWidgetId}_city", fallbackCity) ?: fallbackCity
             }
-            // 單行模式（2x1 / 4x1）精簡顯示地區名（例如「大埔」），4x2+ 顯示完整「大埔 · HKO」
             val displayCity = if (isSingleRowHeight) rawCity.substringBefore(" · ") else rawCity
             val temp = prefs.getString("data_${appWidgetId}_temp", fallbackTemp) ?: fallbackTemp
             val condition = prefs.getString("data_${appWidgetId}_cond", fallbackCond) ?: fallbackCond
@@ -377,7 +381,7 @@ class FlipClockWidgetProvider : AppWidgetProvider() {
             views.setImageViewResource(R.id.widget_weather_card_bg, cardDrawable)
             views.setInt(R.id.widget_weather_card_bg, "setImageAlpha", cardAlpha255)
 
-            if (isSingleRowHeight && !is2x1Compact) {
+            if (layoutId == R.layout.widget_flip_clock_row) {
                 views.setImageViewResource(R.id.widget_date_card_bg, cardDrawable)
                 views.setInt(R.id.widget_date_card_bg, "setImageAlpha", cardAlpha255)
             }
@@ -398,11 +402,13 @@ class FlipClockWidgetProvider : AppWidgetProvider() {
             val scale = cfg.fontScalePercent / 100f
             val baseDigitSp = when {
                 is2x1Compact -> 24f
+                layoutId == R.layout.widget_flip_clock_row_lr -> 28f
                 isSingleRowHeight -> 26f
                 else -> 42f
             }
             val baseColonSp = when {
                 is2x1Compact -> 18f
+                layoutId == R.layout.widget_flip_clock_row_lr -> 20f
                 isSingleRowHeight -> 18f
                 else -> 30f
             }
