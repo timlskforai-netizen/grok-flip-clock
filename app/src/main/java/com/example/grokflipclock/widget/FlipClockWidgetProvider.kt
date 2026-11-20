@@ -318,7 +318,7 @@ class FlipClockWidgetProvider : AppWidgetProvider() {
             val minWidthDp = options.getInt(AppWidgetManager.OPTION_APPWIDGET_MIN_WIDTH, 250)
             val minHeightDp = options.getInt(AppWidgetManager.OPTION_APPWIDGET_MIN_HEIGHT, 120)
 
-            // 高度低於 100dp（即 2x1 或 4x1 單行高度）自動切換橫排佈局；100dp 或以上（4x2+）用完整直排佈局
+            // 高度低於 100dp（即 2x1 或 4x1 單行高度）使用橫排佈局；100dp 或以上（4x2+）使用完整直排佈局
             val isSingleRowHeight = minHeightDp in 1..99
             val is2x1Narrow = isSingleRowHeight && minWidthDp in 1..205
 
@@ -382,22 +382,20 @@ class FlipClockWidgetProvider : AppWidgetProvider() {
             val scale = cfg.fontScalePercent / 100f
             val baseDigitSp = when {
                 is2x1Narrow -> 20f
-                isSingleRowHeight -> 26f
+                isSingleRowHeight -> 24f
                 else -> 42f
             }
             val baseColonSp = when {
                 is2x1Narrow -> 16f
-                isSingleRowHeight -> 20f
+                isSingleRowHeight -> 18f
                 else -> 30f
             }
             views.setTextViewTextSize(R.id.widget_hour, TypedValue.COMPLEX_UNIT_SP, baseDigitSp * scale)
             views.setTextViewTextSize(R.id.widget_minute, TypedValue.COMPLEX_UNIT_SP, baseDigitSp * scale)
             views.setTextViewTextSize(R.id.widget_colon, TypedValue.COMPLEX_UNIT_SP, baseColonSp * scale)
 
-            // 2x1 窄格隱藏右上角 ⚙ 避免遮字（長按 Widget 揀「設定」仍可隨時調教）
             views.setViewVisibility(R.id.widget_config_btn, if (is2x1Narrow) View.GONE else View.VISIBLE)
 
-            // 日期顯示邏輯：2x1 隱藏，4x1 與 4x2+ 依設定顯示
             val showDateNow = cfg.showDate && !is2x1Narrow
             views.setViewVisibility(R.id.widget_date, if (showDateNow) View.VISIBLE else View.GONE)
 
@@ -410,8 +408,8 @@ class FlipClockWidgetProvider : AppWidgetProvider() {
             views.setTextViewText(R.id.widget_condition, if (is2x1Narrow) "" else condition)
             views.setViewVisibility(R.id.widget_condition, if (is2x1Narrow) View.GONE else View.VISIBLE)
 
-            // 每 4 小時預報：4x2+ 或較高嘅 4x1 顯示，2x1 隱藏
-            val canShowForecast = cfg.showForecast && summary.isNotBlank() && !is2x1Narrow && (!isSingleRowHeight || minHeightDp >= 72)
+            // 4x1 及 4x2+ 皆顯示未來每 4 小時預報，僅 2x1 窄格隱藏
+            val canShowForecast = cfg.showForecast && summary.isNotBlank() && !is2x1Narrow
             if (canShowForecast) {
                 views.setTextViewText(R.id.widget_forecast_text, summary)
                 views.setViewVisibility(R.id.widget_forecast_text, View.VISIBLE)
