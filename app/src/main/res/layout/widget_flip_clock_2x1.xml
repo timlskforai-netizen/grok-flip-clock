@@ -1,0 +1,200 @@
+<?xml version="1.0" encoding="utf-8"?>
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/widget_root"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent">
+
+    <ImageView
+        android:id="@+id/widget_bg_image"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:contentDescription="@null"
+        android:scaleType="fitXY"
+        android:src="@drawable/widget_bg" />
+
+    <TextView
+        android:id="@+id/widget_config_btn"
+        android:layout_width="20dp"
+        android:layout_height="20dp"
+        android:layout_gravity="top|end"
+        android:layout_margin="2dp"
+        android:gravity="center"
+        android:text="⚙"
+        android:textColor="#88A1A1AA"
+        android:textSize="10sp" />
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:gravity="center"
+        android:orientation="vertical"
+        android:padding="6dp">
+
+        <TextClock
+            android:id="@+id/widget_date"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:format12Hour="M/d EEE"
+            android:format24Hour="M/d EEE"
+            android:includeFontPadding="false"
+            android:textColor="#FFA1A1AA"
+            android:textSize="9.5sp"
+            android:visibility="gone" />
+
+        <!-- 緊湊雙卡片時鐘（時 : 分） -->
+        <LinearLayout
+            android:id="@+id/widget_clock_container"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:gravity="center"
+            android:orientation="horizontal">
+
+            <FrameLayout
+                android:layout_width="48dp"
+                android:layout_height="42dp">
+
+                <ImageView
+                    android:id="@+id/widget_hour_card_bg"
+                    android:layout_width="match_parent"
+                    android:layout_height="match_parent"
+                    android:contentDescription="@null"
+                    android:scaleType="fitXY"
+                    android:src="@drawable/widget_flip_card" />
+
+                <TextClock
+                    android:id="@+id/widget_hour"
+                    android:layout_width="match_parent"
+                    android:layout_height="match_parent"
+                    android:format12Hour="hh"
+                    android:format24Hour="HH"
+                    android:gravity="center"
+                    android:includeFontPadding="false"
+                    android:textColor="#FFF4F4F5"
+                    android:textSize="24sp"
+                    android:textStyle="bold" />
+
+                <ImageView
+                    android:layout_width="match_parent"
+                    android:layout_height="1dp"
+                    android:layout_gravity="center"
+                    android:background="#80000000"
+                    android:contentDescription="@null" />
+            </FrameLayout>
+
+            <TextView
+                android:id="@+id/widget_colon"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:includeFontPadding="false"
+                android:paddingStart="3dp"
+                android:paddingEnd="3dp"
+                android:text=":"
+                android:textColor="#FF71717A"
+                android:textSize="18sp"
+                android:textStyle="bold" />
+
+            <FrameLayout
+                android:layout_width="48dp"
+                android:layout_height="42dp">
+
+                <ImageView
+                    android:id="@+id/widget_min_card_bg"
+                    android:layout_width="match_parent"
+                    android:layout_height="match_parent"
+                    android:contentDescription="@null"
+                    android:scaleType="fitXY"
+                    android:src="@drawable/widget_flip_card" />
+
+                <TextClock
+                    android:id="@+id/widget_minute"
+                    android:layout_width="match_parent"
+                    android:layout_height="match_parent"
+                    android:format12Hour="mm"
+                    android:format24Hour="mm"
+                    android:gravity="center"
+                    android:includeFontPadding="false"
+                    android:textColor="#FFF4F4F5"
+                    android:textSize="24sp"
+                    android:textStyle="bold" />
+
+                <ImageView
+                    android:layout_width="match_parent"
+                    android:layout_height="1dp"
+                    android:layout_gravity="center"
+                    android:background="#80000000"
+                    android:contentDescription="@null" />
+            </FrameLayout>
+        </LinearLayout>
+
+        <!-- 底部單行天氣膠囊 -->
+        <FrameLayout
+            android:id="@+id/widget_weather_bar"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="5dp">
+
+            <ImageView
+                android:id="@+id/widget_weather_card_bg"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:contentDescription="@null"
+                android:scaleType="fitXY"
+                android:src="@drawable/widget_flip_card" />
+
+            <LinearLayout
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:gravity="center"
+                android:orientation="horizontal"
+                android:paddingStart="8dp"
+                android:paddingTop="3dp"
+                android:paddingEnd="8dp"
+                android:paddingBottom="3dp">
+
+                <TextView
+                    android:id="@+id/widget_city"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:ellipsize="end"
+                    android:includeFontPadding="false"
+                    android:maxLines="1"
+                    android:text="Hong Kong"
+                    android:textColor="#FFA1A1AA"
+                    android:textSize="10sp"
+                    android:textStyle="bold" />
+
+                <TextView
+                    android:id="@+id/widget_temp"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="4dp"
+                    android:includeFontPadding="false"
+                    android:text="--°C"
+                    android:textColor="#FF38BDF8"
+                    android:textSize="10.5sp"
+                    android:textStyle="bold" />
+
+                <TextView
+                    android:id="@+id/widget_condition"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="4dp"
+                    android:ellipsize="end"
+                    android:includeFontPadding="false"
+                    android:maxLines="1"
+                    android:text=""
+                    android:textColor="#FFE4E4E7"
+                    android:textSize="9.5sp" />
+
+                <TextView
+                    android:id="@+id/widget_forecast_text"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text=""
+                    android:visibility="gone" />
+            </LinearLayout>
+        </FrameLayout>
+
+    </LinearLayout>
+
+</FrameLayout>
