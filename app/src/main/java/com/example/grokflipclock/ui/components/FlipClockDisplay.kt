@@ -9,6 +9,7 @@ import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -25,6 +26,7 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.AcUnit
+import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material.icons.rounded.Cloud
 import androidx.compose.material.icons.rounded.Fullscreen
 import androidx.compose.material.icons.rounded.FullscreenExit
@@ -43,6 +45,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
@@ -63,9 +66,12 @@ fun FlipClockPanel(
     is24Hour: Boolean,
     weather: WeatherUiState,
     isFullscreen: Boolean,
+    showAiPanel: Boolean,
+    onToggleAiPanel: () -> Unit,
     onToggleTheme: () -> Unit,
     onToggleFullscreen: () -> Unit,
     onOpenSettings: () -> Unit,
+    onRefreshWeather: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val palette = LocalClockPalette.current
@@ -98,19 +104,25 @@ fun FlipClockPanel(
         val availHeight = maxHeight
         val isCompactHeight = availHeight < 340.dp
 
-        // 動態計算翻頁卡片尺寸，確保喺 70% 分割視窗入面依然大字體且唔會超出邊界
         val cardWidth = ((availWidth - 64.dp) / 6.8f).coerceIn(38.dp, 128.dp)
         val cardHeight = (cardWidth * 1.38f).coerceAtMost(availHeight * 0.44f)
         val digitFontSize = (cardHeight.value * 0.62f).sp
 
-        // 1. 右上角功能列（主題切換 / 全螢幕切換 / 設定）
         Row(
             modifier = Modifier
                 .align(Alignment.TopEnd)
-                .alpha(0.75f),
+                .alpha(0.8f),
             horizontalArrangement = Arrangement.spacedBy(2.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
+            IconButton(onClick = onToggleAiPanel, modifier = Modifier.size(36.dp)) {
+                Icon(
+                    imageVector = Icons.Rounded.AutoAwesome,
+                    contentDescription = if (showAiPanel) "隱藏 AI 面板" else "顯示 AI 面板",
+                    tint = if (showAiPanel) palette.accent else palette.secondaryText,
+                    modifier = Modifier.size(20.dp)
+                )
+            }
             IconButton(onClick = onToggleTheme, modifier = Modifier.size(36.dp)) {
                 Icon(
                     imageVector = Icons.Rounded.Palette,
@@ -137,7 +149,6 @@ fun FlipClockPanel(
             }
         }
 
-        // 2. 中央主視覺：日期 + 機械翻頁時鐘 + 實時及每 4 小時天氣預報
         Column(
             modifier = Modifier
                 .align(Alignment.Center)
@@ -145,7 +156,6 @@ fun FlipClockPanel(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Center
         ) {
-            // 日期與星期
             Text(
                 text = "$datePart  ·  $chineseWeekday  ·  $englishWeekday",
                 color = palette.secondaryText,
@@ -156,7 +166,6 @@ fun FlipClockPanel(
 
             Spacer(modifier = Modifier.height(if (isCompactHeight) 10.dp else 18.dp))
 
-            // 翻頁數字列 (HH : MM : SS)
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(6.dp)
@@ -217,10 +226,10 @@ fun FlipClockPanel(
 
             Spacer(modifier = Modifier.height(if (isCompactHeight) 12.dp else 22.dp))
 
-            // 時鐘下方：實時天氣 + 每 4 小時天氣及溫度預報卡片
             WeatherForecastStrip(
                 weather = weather,
-                isWideLayout = availWidth >= 460.dp
+                isWideLayout = availWidth >= 460.dp,
+                onRefreshWeather = onRefreshWeather
             )
         }
     }
@@ -229,18 +238,22 @@ fun FlipClockPanel(
 @Composable
 private fun WeatherForecastStrip(
     weather: WeatherUiState,
-    isWideLayout: Boolean
+    isWideLayout: Boolean,
+    onRefreshWeather: () -> Unit
 ) {
     val palette = LocalClockPalette.current
+    val cardShape = RoundedCornerShape(16.dp)
 
     Surface(
         color = palette.cardBackground,
-        shape = RoundedCornerShape(16.dp),
+        shape = cardShape,
         border = BorderStroke(1.dp, palette.cardBorder),
-        modifier = Modifier.widthIn(max = 660.dp)
+        modifier = Modifier
+            .widthIn(max = 660.dp)
+            .clip(cardShape)
+            .clickable { onRefreshWeather() }
     ) {
         if (isWideLayout && weather.hourlyForecasts.isNotEmpty()) {
-            // 橫向 / 70% 分割視窗：左邊實時天氣，右邊每 4 小時預報並列
             Row(
                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
                 verticalAlignment = Alignment.CenterVertically,
@@ -264,7 +277,6 @@ private fun WeatherForecastStrip(
                 }
             }
         } else {
-            // 較窄視窗：上下兩層排列
             Column(
                 modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
@@ -397,7 +409,6 @@ private fun FlipDigitCard(
                 )
             }
 
-            // 機械翻頁鐘中間分割幼線
             HorizontalDivider(
                 modifier = Modifier
                     .align(Alignment.Center)
